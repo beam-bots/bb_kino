@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 James Harton
+//
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * BB Robot classes for Three.js visualisation.
  * Adapted from https://github.com/gkjohnson/urdf-loaders

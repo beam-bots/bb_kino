@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 James Harton
+//
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Scene builder for BB robot visualisation.
  * Constructs Three.js scene graph from BB robot topology JSON.

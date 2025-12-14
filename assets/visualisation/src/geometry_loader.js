@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 James Harton
+//
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Geometry loader for BB robot visualisation.
  * Converts BB geometry definitions to Three.js geometry objects.

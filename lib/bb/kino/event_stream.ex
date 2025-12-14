@@ -194,9 +194,7 @@ defmodule BB.Kino.EventStream do
   end
 
   defp format_path(path) do
-    path
-    |> Enum.map(&format_path_element/1)
-    |> Enum.join(".")
+    Enum.map_join(path, ".", &format_path_element/1)
   end
 
   defp format_path_element(atom) when is_atom(atom), do: Atom.to_string(atom)
