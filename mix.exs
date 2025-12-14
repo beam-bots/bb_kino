@@ -37,14 +37,16 @@ defmodule BB.Servo.Kino.MixProject do
       links: %{
         "Source" => "https://github.com/beam-bots/bb_kino",
         "Sponsor" => "https://github.com/sponsors/jimsynz"
-      }
+      },
+      files: ~w(lib priv/static .formatter.exs mix.exs README* LICENSE* CHANGELOG*)
     ]
   end
 
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger],
+      mod: {BB.Kino.Application, []}
     ]
   end
 
@@ -62,7 +64,12 @@ defmodule BB.Servo.Kino.MixProject do
     ]
   end
 
-  defp aliases, do: []
+  defp aliases do
+    [
+      "assets.setup": ["cmd --cd assets/visualisation npm install"],
+      "assets.build": ["cmd --cd assets/visualisation npm run build"]
+    ]
+  end
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do

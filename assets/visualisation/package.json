@@ -1,0 +1,16 @@
+{
+  "name": "bb-kino-visualisation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --outfile=../../priv/static/visualisation.js --format=esm --target=es2020",
+    "watch": "esbuild src/main.js --bundle --outfile=../../priv/static/visualisation.js --format=esm --target=es2020 --watch"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}
