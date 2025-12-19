@@ -78,18 +78,64 @@ defmodule BB.Kino.Command do
   end
 
   defp format_argument(arg) do
-    %{
-      name: arg.name,
-      type: format_type(arg.type),
-      required: arg.required,
-      default: arg.default,
-      doc: arg.doc
-    }
+    case format_type(arg.type) do
+      {:message, module, fields} ->
+        %{
+          name: arg.name,
+          type: %{kind: "message", module: inspect(module), fields: fields},
+          required: arg.required,
+          default: arg.default,
+          doc: arg.doc
+        }
+
+      type_string ->
+        %{
+          name: arg.name,
+          type: type_string,
+          required: arg.required,
+          default: arg.default,
+          doc: arg.doc
+        }
+    end
   end
 
-  defp format_type(type) when is_atom(type), do: Atom.to_string(type)
+  defp format_type(type) when is_atom(type) do
+    if message_module?(type) do
+      {:message, type, extract_schema_fields(type)}
+    else
+      Atom.to_string(type)
+    end
+  end
+
   defp format_type({:in, values}), do: "enum:#{inspect(values)}"
   defp format_type(type), do: inspect(type)
+
+  defp message_module?(module) do
+    Code.ensure_loaded?(module) and function_exported?(module, :schema, 0)
+  end
+
+  defp extract_schema_fields(module) do
+    %{schema: schema_opts} = module.schema()
+
+    schema_opts
+    |> Enum.map(fn {name, opts} ->
+      %{
+        name: Atom.to_string(name),
+        type: format_schema_type(opts[:type]),
+        required: opts[:required] || false,
+        doc: opts[:doc]
+      }
+    end)
+  end
+
+  defp format_schema_type(:float), do: "float"
+  defp format_schema_type(:integer), do: "integer"
+  defp format_schema_type(:boolean), do: "boolean"
+  defp format_schema_type(:atom), do: "atom"
+  defp format_schema_type(:string), do: "string"
+  defp format_schema_type(:pos_integer), do: "integer"
+  defp format_schema_type({:in, values}), do: "enum:#{inspect(values)}"
+  defp format_schema_type(_), do: "text"
 
   @impl true
   def handle_connect(ctx) do
@@ -153,20 +199,49 @@ defmodule BB.Kino.Command do
     ArgumentError -> value
   end
 
-  defp parse_value(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, ""} ->
-        int
+  defp parse_value("{" <> _ = value) do
+    {term, _} = Code.eval_string(value)
+    term
+  rescue
+    _ -> value
+  end
 
-      _ ->
-        case Float.parse(value) do
-          {float, ""} -> float
-          _ -> value
-        end
+  defp parse_value(%{"__module__" => module_string} = data) do
+    # Handle message struct from nested form fields
+    module = Module.safe_concat([module_string])
+
+    fields =
+      data
+      |> Map.delete("__module__")
+      |> Enum.map(fn {k, v} -> {String.to_existing_atom(k), parse_value(v)} end)
+
+    struct(module, fields)
+  rescue
+    _ -> data
+  end
+
+  defp parse_value(value) when is_binary(value) do
+    with :error <- parse_integer(value),
+         :error <- parse_float(value) do
+      Module.concat([value])
     end
   end
 
   defp parse_value(value), do: value
+
+  defp parse_integer(value) do
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> :error
+    end
+  end
+
+  defp parse_float(value) do
+    case Float.parse(value) do
+      {float, ""} -> float
+      _ -> :error
+    end
+  end
 
   @impl true
   def handle_info({:await_task, task, cmd_name}, ctx) do
@@ -292,9 +367,21 @@ defmodule BB.Kino.Command do
 
           const args = {};
           cmd.arguments.forEach(arg => {
-            const input = form.querySelector(`[name="${arg.name}"]`);
-            if (input && input.value !== '') {
-              args[arg.name] = input.type === 'checkbox' ? input.checked : input.value;
+            // Handle message types with nested fields
+            if (arg.type && typeof arg.type === 'object' && arg.type.kind === 'message') {
+              const messageData = { __module__: arg.type.module };
+              arg.type.fields.forEach(field => {
+                const input = form.querySelector(`[name="${arg.name}.${field.name}"]`);
+                if (input && input.value !== '') {
+                  messageData[field.name] = input.type === 'checkbox' ? input.checked : input.value;
+                }
+              });
+              args[arg.name] = messageData;
+            } else {
+              const input = form.querySelector(`[name="${arg.name}"]`);
+              if (input && input.value !== '') {
+                args[arg.name] = input.type === 'checkbox' ? input.checked : input.value;
+              }
             }
           });
 
@@ -305,23 +392,44 @@ defmodule BB.Kino.Command do
       function renderInput(arg) {
         const defaultVal = arg.default || '';
 
-        if (arg.type === 'boolean') {
-          return `<input type="checkbox" name="${arg.name}" ${defaultVal === 'true' ? 'checked' : ''}>`;
+        // Handle message types with nested fields
+        if (arg.type && typeof arg.type === 'object' && arg.type.kind === 'message') {
+          return `
+            <div class="message-fields" data-message="${arg.name}">
+              ${arg.type.fields.map(field => `
+                <div class="message-field">
+                  <label class="field-label">${field.name}${field.required ? '<span class="required">*</span>' : ''}</label>
+                  ${renderSimpleInput(field, arg.name + '.' + field.name)}
+                  ${field.doc ? `<span class="field-doc">${field.doc}</span>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          `;
         }
 
-        if (arg.type.startsWith('enum:')) {
+        return renderSimpleInput(arg, arg.name);
+      }
+
+      function renderSimpleInput(arg, name) {
+        const defaultVal = arg.default || '';
+
+        if (arg.type === 'boolean') {
+          return `<input type="checkbox" name="${name}" ${defaultVal === 'true' ? 'checked' : ''}>`;
+        }
+
+        if (typeof arg.type === 'string' && arg.type.startsWith('enum:')) {
           const values = arg.type.replace('enum:', '').slice(1, -1).split(', ');
           return `
-            <select name="${arg.name}">
+            <select name="${name}">
               ${values.map(v => `<option value="${v}" ${v === defaultVal ? 'selected' : ''}>${v}</option>`).join('')}
             </select>
           `;
         }
 
         const inputType = arg.type === 'integer' || arg.type === 'float' ? 'number' : 'text';
-        const step = arg.type === 'float' ? '0.01' : '1';
+        const step = arg.type === 'float' ? '0.001' : '1';
 
-        return `<input type="${inputType}" name="${arg.name}" value="${defaultVal}" ${inputType === 'number' ? `step="${step}"` : ''}>`;
+        return `<input type="${inputType}" name="${name}" value="${defaultVal}" ${inputType === 'number' ? `step="${step}"` : ''}>`;
       }
 
       function showResult(type, message) {
@@ -476,6 +584,40 @@ defmodule BB.Kino.Command do
     .no-args {
       color: #888;
       font-style: italic;
+    }
+
+    .message-fields {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 12px;
+      padding: 12px;
+      background: #f9f9f9;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+    }
+
+    .message-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .message-field .field-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #555;
+    }
+
+    .message-field input {
+      padding: 6px 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    .message-field .field-doc {
+      font-size: 11px;
+      color: #999;
     }
 
     .execute-btn {
