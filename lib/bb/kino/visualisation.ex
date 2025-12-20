@@ -185,7 +185,10 @@ defmodule BB.Kino.Visualisation do
   end
 
   defp serialize_colour(nil), do: nil
-  defp serialize_colour(%{red: r, green: g, blue: b, alpha: a}), do: %{rgba: %{r: r, g: g, b: b, a: a}}
+
+  defp serialize_colour(%{red: r, green: g, blue: b, alpha: a}),
+    do: %{rgba: %{r: r, g: g, b: b, a: a}}
+
   defp serialize_colour({r, g, b, a}), do: %{rgba: %{r: r, g: g, b: b, a: a}}
   defp serialize_colour({r, g, b}), do: %{r: r, g: g, b: b}
 
