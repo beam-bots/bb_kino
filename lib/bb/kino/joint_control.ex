@@ -276,6 +276,7 @@ defmodule BB.Kino.JointControl do
 
       let joints = payload.joints || [];
       let armed = payload.armed;
+      let activeSlider = null;  // Track which slider is being dragged
 
       function formatPosition(pos, type) {
         if (pos === null || pos === undefined) return "N/A";
@@ -332,9 +333,19 @@ defmodule BB.Kino.JointControl do
         }).join('');
 
         tableBody.querySelectorAll('.position-slider').forEach(slider => {
+          const jointName = slider.closest('.joint-row').dataset.joint;
+
+          slider.addEventListener('focus', () => {
+            activeSlider = jointName;
+          });
+
+          slider.addEventListener('blur', () => {
+            activeSlider = null;
+          });
+
           slider.addEventListener('input', (e) => {
             if (!armed) return;
-            const jointName = e.target.closest('.joint-row').dataset.joint;
+            activeSlider = jointName;
             const position = parseFloat(e.target.value);
             ctx.pushEvent('set_position', { joint: jointName, position: position });
           });
@@ -359,6 +370,14 @@ defmodule BB.Kino.JointControl do
             if (row) {
               const posCol = row.querySelector('.col-position');
               posCol.textContent = formatPosition(position, joint.type);
+
+              // Update slider value unless user is actively dragging it
+              if (activeSlider !== name) {
+                const slider = row.querySelector('.position-slider');
+                if (slider) {
+                  slider.value = position;
+                }
+              }
             }
           }
         });
