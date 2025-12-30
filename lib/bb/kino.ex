@@ -27,6 +27,7 @@ defmodule BB.Kino do
   - `BB.Kino.EventStream` - Live stream of robot messages
   - `BB.Kino.Command` - Execute robot commands with forms
   - `BB.Kino.Visualisation` - Interactive 3D robot visualisation
+  - `BB.Kino.Parameters` - View and edit robot parameters
 
   ## Quick Start
 
@@ -44,6 +45,9 @@ defmodule BB.Kino do
 
       # 3D visualisation with live position updates
       BB.Kino.visualisation(MyRobot)
+
+      # View and edit parameters
+      BB.Kino.parameters(MyRobot)
 
   ## Usage with Real Robots
 
@@ -125,4 +129,17 @@ defmodule BB.Kino do
   """
   @spec visualisation(module()) :: Kino.JS.Live.t()
   defdelegate visualisation(robot_module), to: BB.Kino.Visualisation, as: :new
+
+  @doc """
+  Creates a parameters widget for the robot.
+
+  Displays all robot parameters in a tab-based interface with editing controls.
+  Local parameter groups appear as tabs, remote bridge parameters in separate tabs.
+
+  ## Example
+
+      BB.Kino.parameters(MyRobot)
+  """
+  @spec parameters(module()) :: Kino.JS.Live.t()
+  defdelegate parameters(robot_module), to: BB.Kino.Parameters, as: :new
 end

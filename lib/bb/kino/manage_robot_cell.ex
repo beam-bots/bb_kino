@@ -12,6 +12,7 @@ defmodule BB.Kino.ManageRobotCell do
   - Event stream monitoring
   - Command execution
   - 3D visualisation
+  - Parameter editing
 
   ## Usage
 
@@ -31,7 +32,8 @@ defmodule BB.Kino.ManageRobotCell do
       "joints" => Map.get(attrs, "joints", true),
       "events" => Map.get(attrs, "events", true),
       "commands" => Map.get(attrs, "commands", true),
-      "visualisation" => Map.get(attrs, "visualisation", true)
+      "visualisation" => Map.get(attrs, "visualisation", true),
+      "parameters" => Map.get(attrs, "parameters", true)
     }
 
     {:ok, assign(ctx, robot_module: robot_module, widgets: widgets)}
@@ -67,7 +69,8 @@ defmodule BB.Kino.ManageRobotCell do
       "joints" => ctx.assigns.widgets["joints"],
       "events" => ctx.assigns.widgets["events"],
       "commands" => ctx.assigns.widgets["commands"],
-      "visualisation" => ctx.assigns.widgets["visualisation"]
+      "visualisation" => ctx.assigns.widgets["visualisation"],
+      "parameters" => ctx.assigns.widgets["parameters"]
     }
   end
 
@@ -80,16 +83,17 @@ defmodule BB.Kino.ManageRobotCell do
 
     left_column = build_left_column_widgets(attrs, module_ast)
     right_column = build_right_column_widgets(attrs, module_ast)
+    bottom_widget = build_bottom_widget(attrs, module_ast)
 
-    case {left_column, right_column} do
-      {[], []} -> ""
-      {left_column, right_column} -> generate_source(robot_module, left_column, right_column)
+    case {left_column, right_column, bottom_widget} do
+      {[], [], nil} -> ""
+      _ -> generate_source(robot_module, left_column, right_column, bottom_widget)
     end
   end
 
-  defp generate_source(robot_module, left_column, right_column) do
+  defp generate_source(robot_module, left_column, right_column, bottom_widget) do
     module_ast = Code.string_to_quoted!(robot_module)
-    layout_ast = build_layout_ast(left_column, right_column)
+    layout_ast = build_layout_ast(left_column, right_column, bottom_widget)
 
     quote do
       robot_running? =
@@ -118,19 +122,47 @@ defmodule BB.Kino.ManageRobotCell do
     |> Kino.SmartCell.quoted_to_string()
   end
 
-  defp build_layout_ast([], [single]) do
+  defp build_layout_ast([], [], bottom) when not is_nil(bottom) do
+    bottom
+  end
+
+  defp build_layout_ast([], [single], nil) do
     single
   end
 
-  defp build_layout_ast([], right_column) do
+  defp build_layout_ast([], right_column, nil) do
     quote do: Kino.Layout.grid(unquote(right_column), columns: 1)
   end
 
-  defp build_layout_ast(left_column, []) do
+  defp build_layout_ast(left_column, [], nil) do
     quote do: Kino.Layout.grid(unquote(left_column), columns: 1)
   end
 
-  defp build_layout_ast(left_column, right_column) do
+  defp build_layout_ast([], right_column, bottom) do
+    quote do
+      Kino.Layout.grid(
+        [
+          Kino.Layout.grid(unquote(right_column), columns: 1),
+          unquote(bottom)
+        ],
+        columns: 1
+      )
+    end
+  end
+
+  defp build_layout_ast(left_column, [], bottom) do
+    quote do
+      Kino.Layout.grid(
+        [
+          Kino.Layout.grid(unquote(left_column), columns: 1),
+          unquote(bottom)
+        ],
+        columns: 1
+      )
+    end
+  end
+
+  defp build_layout_ast(left_column, right_column, nil) do
     quote do
       Kino.Layout.grid(
         [
@@ -138,6 +170,24 @@ defmodule BB.Kino.ManageRobotCell do
           Kino.Layout.grid(unquote(right_column), columns: 1)
         ],
         columns: 2
+      )
+    end
+  end
+
+  defp build_layout_ast(left_column, right_column, bottom) do
+    quote do
+      Kino.Layout.grid(
+        [
+          Kino.Layout.grid(
+            [
+              Kino.Layout.grid(unquote(left_column), columns: 1),
+              Kino.Layout.grid(unquote(right_column), columns: 1)
+            ],
+            columns: 2
+          ),
+          unquote(bottom)
+        ],
+        columns: 1
       )
     end
   end
@@ -158,6 +208,14 @@ defmodule BB.Kino.ManageRobotCell do
     )
     |> maybe_add_widget(attrs["commands"], quote(do: BB.Kino.commands(unquote(module_ast))))
     |> Enum.reverse()
+  end
+
+  defp build_bottom_widget(attrs, module_ast) do
+    if attrs["parameters"] do
+      quote(do: BB.Kino.parameters(unquote(module_ast)))
+    else
+      nil
+    end
   end
 
   defp maybe_add_widget(list, true, widget), do: [widget | list]
@@ -230,6 +288,10 @@ defmodule BB.Kino.ManageRobotCell do
                   <label class="toggle">
                     <input type="checkbox" data-widget="visualisation" ${payload.widgets.visualisation ? 'checked' : ''}>
                     <span>3D Visualisation</span>
+                  </label>
+                  <label class="toggle">
+                    <input type="checkbox" data-widget="parameters" ${payload.widgets.parameters ? 'checked' : ''}>
+                    <span>Parameters</span>
                   </label>
                 </div>
               </div>
