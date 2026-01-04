@@ -24,13 +24,13 @@ defmodule BB.Kino.Examples.TestRobot do
   # Command handler for cycling a joint through its range
   defmodule CycleJoint do
     @moduledoc false
-    @behaviour BB.Command
+    use BB.Command
 
     alias BB.Message
     alias BB.Robot.Runtime, as: RobotRuntime
 
-    @impl true
-    def handle_command(goal, context) do
+    @impl BB.Command
+    def handle_command(goal, context, state) do
       joint_name = Map.get(goal, :joint, :shoulder_joint)
       duration_ms = Map.get(goal, :duration, 2000)
       steps = Map.get(goal, :steps, 20)
@@ -40,32 +40,53 @@ defmodule BB.Kino.Examples.TestRobot do
 
       case Map.get(robot_struct.joints, joint_name) do
         nil ->
-          {:error, {:unknown_joint, joint_name}}
+          {:stop, :normal, %{state | result: {:error, {:unknown_joint, joint_name}}}}
 
         joint ->
           lower = joint.limits[:lower] || -:math.pi()
           upper = joint.limits[:upper] || :math.pi()
 
-          # Get current position
           positions = RobotRuntime.positions(robot)
           start_pos = Map.get(positions, joint_name, 0.0)
 
           step_delay = div(duration_ms, steps * 2)
 
-          # Cycle: start -> lower -> upper -> start
           cycle_positions =
             interpolate(start_pos, lower, steps) ++
               interpolate(lower, upper, steps) ++
               interpolate(upper, start_pos, steps)
 
-          for pos <- cycle_positions do
-            publish_joint_position(robot, joint_name, pos)
-            Process.sleep(step_delay)
-          end
+          state =
+            Map.merge(state, %{
+              robot: robot,
+              joint_name: joint_name,
+              remaining: cycle_positions,
+              step_delay: step_delay
+            })
 
-          {:ok, %{joint: joint_name, cycled: true}}
+          send(self(), :next_position)
+          {:noreply, state}
       end
     end
+
+    @impl BB.Command
+    def handle_info(:next_position, state) do
+      case state.remaining do
+        [] ->
+          {:stop, :normal, %{state | result: %{joint: state.joint_name, cycled: true}}}
+
+        [pos | rest] ->
+          publish_joint_position(state.robot, state.joint_name, pos)
+          Process.send_after(self(), :next_position, state.step_delay)
+          {:noreply, %{state | remaining: rest}}
+      end
+    end
+
+    def handle_info(_msg, state), do: {:noreply, state}
+
+    @impl BB.Command
+    def result(%{result: {:error, _} = error}), do: error
+    def result(%{result: result}), do: {:ok, result}
 
     defp interpolate(from, to, steps) do
       step_size = (to - from) / steps
@@ -91,13 +112,12 @@ defmodule BB.Kino.Examples.TestRobot do
   # Command handler for moving to home position
   defmodule GoHome do
     @moduledoc false
-    @behaviour BB.Command
+    use BB.Command
 
-    alias BB.Message
     alias BB.Robot.Runtime, as: RobotRuntime
 
-    @impl true
-    def handle_command(goal, context) do
+    @impl BB.Command
+    def handle_command(goal, context, state) do
       duration_ms = Map.get(goal, :duration, 1000)
       steps = Map.get(goal, :steps, 20)
 
@@ -106,26 +126,46 @@ defmodule BB.Kino.Examples.TestRobot do
       positions = RobotRuntime.positions(robot)
 
       step_delay = div(duration_ms, steps)
-
-      # Move all joints to 0
       joint_names = Map.keys(robot_struct.joints)
 
-      for i <- 1..steps do
-        fraction = i / steps
+      state =
+        Map.merge(state, %{
+          robot: robot,
+          joint_names: joint_names,
+          start_positions: positions,
+          current_step: 1,
+          total_steps: steps,
+          step_delay: step_delay
+        })
+
+      send(self(), :next_step)
+      {:noreply, state}
+    end
+
+    @impl BB.Command
+    def handle_info(:next_step, state) do
+      if state.current_step > state.total_steps do
+        {:stop, :normal, %{state | result: %{homed: true}}}
+      else
+        fraction = state.current_step / state.total_steps
 
         joint_positions =
-          for joint_name <- joint_names do
-            current = Map.get(positions, joint_name, 0.0)
+          for joint_name <- state.joint_names do
+            current = Map.get(state.start_positions, joint_name, 0.0)
             target = current * (1 - fraction)
             {joint_name, target}
           end
 
-        publish_joint_positions(robot, joint_positions)
-        Process.sleep(step_delay)
+        publish_joint_positions(state.robot, joint_positions)
+        Process.send_after(self(), :next_step, state.step_delay)
+        {:noreply, %{state | current_step: state.current_step + 1}}
       end
-
-      {:ok, %{homed: true}}
     end
+
+    def handle_info(_msg, state), do: {:noreply, state}
+
+    @impl BB.Command
+    def result(%{result: result}), do: {:ok, result}
 
     defp publish_joint_positions(robot, joint_positions) do
       {names, positions} = Enum.unzip(joint_positions)
@@ -145,69 +185,108 @@ defmodule BB.Kino.Examples.TestRobot do
   # Command handler for waving (demo animation)
   defmodule Wave do
     @moduledoc false
-    @behaviour BB.Command
+    use BB.Command
 
-    alias BB.Message
     alias BB.Robot.Runtime, as: RobotRuntime
 
-    @impl true
-    def handle_command(goal, context) do
+    @wave_shoulder :math.pi() / 4
+    @wave_elbow :math.pi() / 2
+    @wave_amplitude :math.pi() / 4
+
+    @impl BB.Command
+    def handle_command(goal, context, state) do
       cycles = Map.get(goal, :cycles, 3)
       speed = Map.get(goal, :speed, 1.0)
 
       robot = context.robot_module
       positions = RobotRuntime.positions(robot)
 
-      # Save starting positions
       shoulder_start = Map.get(positions, :shoulder_joint, 0.0)
       elbow_start = Map.get(positions, :elbow_joint, 0.0)
-
-      # First, move shoulder up and elbow bent
-      wave_shoulder = :math.pi() / 4
-      wave_elbow = :math.pi() / 2
 
       steps = round(20 / speed)
       step_delay = round(30 / speed)
 
-      # Move to wave position
-      for i <- 1..steps do
-        fraction = i / steps
-        shoulder = shoulder_start + (wave_shoulder - shoulder_start) * fraction
-        elbow = elbow_start + (wave_elbow - elbow_start) * fraction
-        publish_positions(robot, shoulder, elbow)
-        Process.sleep(step_delay)
-      end
+      state =
+        Map.merge(state, %{
+          robot: robot,
+          cycles: cycles,
+          steps: steps,
+          step_delay: step_delay,
+          shoulder_start: shoulder_start,
+          elbow_start: elbow_start,
+          phase: :move_to_wave,
+          current_step: 1,
+          current_cycle: 1,
+          wave_direction: :out
+        })
 
-      # Wave back and forth
-      for _cycle <- 1..cycles do
-        # Wave one way (elbow extends)
-        for i <- 1..steps do
-          fraction = i / steps
-          elbow = wave_elbow - :math.pi() / 4 * fraction
-          publish_positions(robot, wave_shoulder, elbow)
-          Process.sleep(step_delay)
-        end
-
-        # Wave back (elbow bends)
-        for i <- 1..steps do
-          fraction = i / steps
-          elbow = wave_elbow - :math.pi() / 4 + :math.pi() / 4 * fraction
-          publish_positions(robot, wave_shoulder, elbow)
-          Process.sleep(step_delay)
-        end
-      end
-
-      # Return to start
-      for i <- 1..steps do
-        fraction = i / steps
-        shoulder = wave_shoulder + (shoulder_start - wave_shoulder) * fraction
-        elbow = wave_elbow + (elbow_start - wave_elbow) * fraction
-        publish_positions(robot, shoulder, elbow)
-        Process.sleep(step_delay)
-      end
-
-      {:ok, %{waved: cycles}}
+      send(self(), :tick)
+      {:noreply, state}
     end
+
+    @impl BB.Command
+    def handle_info(:tick, %{phase: :move_to_wave} = state) do
+      if state.current_step > state.steps do
+        Process.send_after(self(), :tick, state.step_delay)
+        {:noreply, %{state | phase: :waving, current_step: 1}}
+      else
+        fraction = state.current_step / state.steps
+        shoulder = state.shoulder_start + (@wave_shoulder - state.shoulder_start) * fraction
+        elbow = state.elbow_start + (@wave_elbow - state.elbow_start) * fraction
+        publish_positions(state.robot, shoulder, elbow)
+        Process.send_after(self(), :tick, state.step_delay)
+        {:noreply, %{state | current_step: state.current_step + 1}}
+      end
+    end
+
+    def handle_info(:tick, %{phase: :waving} = state) do
+      if state.current_step > state.steps do
+        case {state.wave_direction, state.current_cycle} do
+          {:out, _} ->
+            Process.send_after(self(), :tick, state.step_delay)
+            {:noreply, %{state | wave_direction: :back, current_step: 1}}
+
+          {:back, cycle} when cycle >= state.cycles ->
+            Process.send_after(self(), :tick, state.step_delay)
+            {:noreply, %{state | phase: :return_home, current_step: 1}}
+
+          {:back, cycle} ->
+            Process.send_after(self(), :tick, state.step_delay)
+            {:noreply, %{state | wave_direction: :out, current_step: 1, current_cycle: cycle + 1}}
+        end
+      else
+        fraction = state.current_step / state.steps
+
+        elbow =
+          case state.wave_direction do
+            :out -> @wave_elbow - @wave_amplitude * fraction
+            :back -> @wave_elbow - @wave_amplitude + @wave_amplitude * fraction
+          end
+
+        publish_positions(state.robot, @wave_shoulder, elbow)
+        Process.send_after(self(), :tick, state.step_delay)
+        {:noreply, %{state | current_step: state.current_step + 1}}
+      end
+    end
+
+    def handle_info(:tick, %{phase: :return_home} = state) do
+      if state.current_step > state.steps do
+        {:stop, :normal, %{state | result: %{waved: state.cycles}}}
+      else
+        fraction = state.current_step / state.steps
+        shoulder = @wave_shoulder + (state.shoulder_start - @wave_shoulder) * fraction
+        elbow = @wave_elbow + (state.elbow_start - @wave_elbow) * fraction
+        publish_positions(state.robot, shoulder, elbow)
+        Process.send_after(self(), :tick, state.step_delay)
+        {:noreply, %{state | current_step: state.current_step + 1}}
+      end
+    end
+
+    def handle_info(_msg, state), do: {:noreply, state}
+
+    @impl BB.Command
+    def result(%{result: result}), do: {:ok, result}
 
     defp publish_positions(robot, shoulder, elbow) do
       joint_names =
@@ -216,7 +295,6 @@ defmodule BB.Kino.Examples.TestRobot do
         |> Map.get(:joints)
         |> Map.keys()
 
-      # Only publish for joints that exist
       {names, positions} =
         [{:shoulder_joint, shoulder}, {:elbow_joint, elbow}]
         |> Enum.filter(fn {name, _} -> name in joint_names end)

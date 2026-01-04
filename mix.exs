@@ -74,7 +74,7 @@ defmodule BB.Servo.Kino.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:bb, "~> 0.4"},
+      {:bb, bb_dep("~> 0.12")},
       {:kino, "~> 0.18"},
 
       # dev/test
@@ -91,4 +91,13 @@ defmodule BB.Servo.Kino.MixProject do
 
   defp elixirc_paths(env) when env in [:dev, :test], do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
+
+  defp bb_dep(default) do
+    case System.get_env("BB_VERSION") do
+      nil -> default
+      "local" -> [path: "../bb", override: true]
+      "main" -> [git: "https://github.com/beam-bots/bb.git", override: true]
+      version -> "~> #{version}"
+    end
+  end
 end
