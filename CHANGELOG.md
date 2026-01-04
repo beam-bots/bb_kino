@@ -11,6 +11,25 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.3.0](https://github.com/beam-bots/bb_kino/compare/v0.2.0...v0.3.0) (2026-01-04)
+### Breaking Changes:
+
+* update command handlers to new GenServer-based API (#9) by James Harton
+
+
+
+### Features:
+
+* add Parameters widget for viewing and editing robot parameters (#2) by James Harton
+
+### Bug Fixes:
+
+* colour serialisation by James Harton
+
+### Improvements:
+
+* enhance command and joint control widgets (#1) by James Harton
+
 ## [v0.2.0](https://github.com/beam-bots/bb_kino/compare/v0.1.0...v0.2.0) (2025-12-14)
 
 
