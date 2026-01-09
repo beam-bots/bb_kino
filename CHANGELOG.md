@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.3.1](https://github.com/beam-bots/bb_kino/compare/v0.3.0...v0.3.1) (2026-01-09)
+
+
+
+
+### Bug Fixes:
+
+* use BB.Actuator.set_position! for direct actuator commands by James Harton
+
 ## [v0.3.0](https://github.com/beam-bots/bb_kino/compare/v0.2.0...v0.3.0) (2026-01-04)
 ### Breaking Changes:
 
