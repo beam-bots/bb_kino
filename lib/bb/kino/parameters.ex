@@ -29,6 +29,7 @@ defmodule BB.Kino.Parameters do
   alias BB.Kino.Shared.RobotContext
   alias BB.Parameter
   alias BB.Parameter.Changed, as: ParameterChanged
+  alias BB.Robot.Runtime, as: RobotRuntime
   alias Kino.JS.Live, as: KinoLive
 
   @doc """
@@ -143,10 +144,15 @@ defmodule BB.Kino.Parameters do
   defp format_type(other), do: inspect(other)
 
   defp discover_bridge_parameters(robot) do
+    simulation_mode = RobotRuntime.simulation_mode(robot)
+
     bridges =
       robot
       |> DslInfo.parameters()
       |> Enum.filter(&is_struct(&1, BB.Dsl.Bridge))
+      |> Enum.reject(fn bridge ->
+        simulation_mode != nil and bridge.simulation == :omit
+      end)
 
     tabs =
       Enum.map(bridges, fn bridge ->
