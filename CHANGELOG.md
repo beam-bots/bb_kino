@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.3.2](https://github.com/beam-bots/bb_kino/compare/v0.3.1...v0.3.2) (2026-01-11)
+
+
+
+
+### Bug Fixes:
+
+* filter out omitted bridges in simulation mode by James Harton
+
 ## [v0.3.1](https://github.com/beam-bots/bb_kino/compare/v0.3.0...v0.3.1) (2026-01-09)
 
 
