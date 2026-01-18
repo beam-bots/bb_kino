@@ -138,4 +138,7 @@ Interactive Three.js-based robot visualisation:
 
 ## Documentation
 
-Full documentation is available at [HexDocs](https://hexdocs.pm/bb_kino).
+- [Interactive Control in Livebook](https://hexdocs.pm/bb_kino/01-interactive-control-in-livebook.html) - getting started tutorial
+- [Create Combined Widget Layout](https://hexdocs.pm/bb_kino/create-combined-widget-layout.html) - custom layouts
+
+Full API documentation is available at [HexDocs](https://hexdocs.pm/bb_kino).
