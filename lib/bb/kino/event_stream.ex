@@ -170,11 +170,9 @@ defmodule BB.Kino.EventStream do
   end
 
   defp format_message(path, message) do
-    # Use wall clock time for display since BB.Message.timestamp is monotonic time
-    now = DateTime.utc_now()
-
     timestamp_str =
-      now
+      message.wall_time
+      |> DateTime.from_unix!(:nanosecond)
       |> Calendar.strftime("%H:%M:%S.%f")
       |> String.slice(0, 12)
 
