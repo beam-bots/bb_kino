@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.3.4](https://github.com/beam-bots/bb_kino/compare/v0.3.3...v0.3.4) (2026-05-17)
+
+
+
+
+### Improvements:
+
+* display event-stream timestamps from `BB.Message.wall_time` (#39) by James Harton
+
 ## [v0.3.3](https://github.com/beam-bots/bb_kino/compare/v0.3.2...v0.3.3) (2026-01-18)
 
 
