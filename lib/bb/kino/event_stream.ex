@@ -36,6 +36,8 @@ defmodule BB.Kino.EventStream do
   alias Kino.JS.Live, as: KinoLive
 
   @default_max_messages 100
+  @default_flush_interval_ms 500
+  @default_debounce_window_ms 1000
 
   @doc """
   Creates a new event stream widget for the given robot.
@@ -45,6 +47,9 @@ defmodule BB.Kino.EventStream do
   - `:path_filter` - list of atoms for path filtering (default: `[]` for all)
   - `:message_types` - list of message type modules to filter by
   - `:max_messages` - maximum messages to display (default: 100)
+  - `:flush_interval_ms` - how often buffered messages are rendered (default: 500)
+  - `:debounce_window_ms` - how long repeats of the same path + payload type are
+    dropped for (default: 1000)
   """
   @spec new(module(), keyword()) :: KinoLive.t()
   def new(robot_module, opts \\ []) do
@@ -58,6 +63,8 @@ defmodule BB.Kino.EventStream do
         path_filter = Keyword.get(opts, :path_filter, [])
         message_types = Keyword.get(opts, :message_types, [])
         max_messages = Keyword.get(opts, :max_messages, @default_max_messages)
+        flush_interval_ms = Keyword.get(opts, :flush_interval_ms, @default_flush_interval_ms)
+        debounce_window_ms = Keyword.get(opts, :debounce_window_ms, @default_debounce_window_ms)
 
         subscribe(robot, path_filter, message_types)
 
@@ -67,9 +74,14 @@ defmodule BB.Kino.EventStream do
            path_filter: path_filter,
            message_types: message_types,
            max_messages: max_messages,
+           flush_interval_ms: flush_interval_ms,
+           debounce_window_ms: debounce_window_ms,
            paused: false,
            messages: :queue.new(),
-           message_count: 0
+           message_count: 0,
+           pending: [],
+           last_seen: %{},
+           flush_scheduled: false
          )}
 
       {:error, reason} ->
@@ -122,7 +134,7 @@ defmodule BB.Kino.EventStream do
 
   def handle_event("clear", _payload, ctx) do
     broadcast_event(ctx, "cleared", %{})
-    {:noreply, assign(ctx, messages: :queue.new(), message_count: 0)}
+    {:noreply, assign(ctx, messages: :queue.new(), message_count: 0, pending: [])}
   end
 
   def handle_event("set_filter", %{"path" => path_str}, ctx) do
@@ -143,30 +155,75 @@ defmodule BB.Kino.EventStream do
 
   @impl true
   def handle_info({:bb, path, %BB.Message{} = message}, ctx) do
-    if ctx.assigns.paused do
+    cond do
+      ctx.assigns.paused ->
+        {:noreply, ctx}
+
+      debounced?(path, message, ctx.assigns.last_seen, ctx.assigns.debounce_window_ms) ->
+        {:noreply, ctx}
+
+      true ->
+        key = debounce_key(path, message)
+        now = System.monotonic_time(:millisecond)
+        msg_data = format_message(path, message)
+
+        ctx =
+          ctx
+          |> assign(pending: [msg_data | ctx.assigns.pending])
+          |> assign(last_seen: Map.put(ctx.assigns.last_seen, key, now))
+          |> schedule_flush()
+
+        {:noreply, ctx}
+    end
+  end
+
+  def handle_info(:flush, ctx) do
+    pending = Enum.reverse(ctx.assigns.pending)
+    ctx = assign(ctx, pending: [], flush_scheduled: false)
+
+    if pending == [] do
       {:noreply, ctx}
     else
-      msg_data = format_message(path, message)
-      broadcast_event(ctx, "message", msg_data)
+      broadcast_event(ctx, "messages", %{messages: pending})
 
-      messages = :queue.in(msg_data, ctx.assigns.messages)
-      count = ctx.assigns.message_count + 1
+      {messages, count} =
+        Enum.reduce(pending, {ctx.assigns.messages, ctx.assigns.message_count}, fn msg, {q, c} ->
+          push_message(q, c, msg, ctx.assigns.max_messages)
+        end)
 
-      messages =
-        if count > ctx.assigns.max_messages do
-          {_, q} = :queue.out(messages)
-          q
-        else
-          messages
-        end
-
-      {:noreply,
-       assign(ctx, messages: messages, message_count: min(count, ctx.assigns.max_messages))}
+      {:noreply, assign(ctx, messages: messages, message_count: count)}
     end
   end
 
   def handle_info(_msg, ctx) do
     {:noreply, ctx}
+  end
+
+  defp push_message(queue, count, msg, max_messages) do
+    queue = :queue.in(msg, queue)
+
+    if count + 1 > max_messages do
+      {_, trimmed} = :queue.out(queue)
+      {trimmed, max_messages}
+    else
+      {queue, count + 1}
+    end
+  end
+
+  defp debounce_key(path, message), do: {path, message.payload.__struct__}
+
+  defp debounced?(path, message, last_seen, window_ms) do
+    case Map.get(last_seen, debounce_key(path, message)) do
+      nil -> false
+      last -> System.monotonic_time(:millisecond) - last < window_ms
+    end
+  end
+
+  defp schedule_flush(%{assigns: %{flush_scheduled: true}} = ctx), do: ctx
+
+  defp schedule_flush(ctx) do
+    Process.send_after(self(), :flush, ctx.assigns.flush_interval_ms)
+    assign(ctx, flush_scheduled: true)
   end
 
   defp format_message(path, message) do
@@ -391,8 +448,8 @@ defmodule BB.Kino.EventStream do
         }
       });
 
-      ctx.handleEvent('message', (msg) => {
-        addMessage(msg);
+      ctx.handleEvent('messages', ({ messages: batch }) => {
+        (batch || []).forEach(addMessage);
       });
 
       ctx.handleEvent('paused_changed', ({ paused: p }) => {
