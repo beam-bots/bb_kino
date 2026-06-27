@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.3.7](https://github.com/beam-bots/bb_kino/compare/v0.3.6...v0.3.7) (2026-06-27)
+
+
+
+
+### Bug Fixes:
+
+* accumulate and throttle joint updates in the 3D view and sliders (#79) by James Harton
+
 ## [v0.3.6](https://github.com/beam-bots/bb_kino/compare/v0.3.5...v0.3.6) (2026-06-27)
 
 
