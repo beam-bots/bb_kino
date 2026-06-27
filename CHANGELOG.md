@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.3.6](https://github.com/beam-bots/bb_kino/compare/v0.3.5...v0.3.6) (2026-06-27)
+
+
+
+
+### Bug Fixes:
+
+* don't time out continuous commands; add cancel control (#78) by James Harton
+
 ## [v0.3.5](https://github.com/beam-bots/bb_kino/compare/v0.3.4...v0.3.5) (2026-06-06)
 
 
