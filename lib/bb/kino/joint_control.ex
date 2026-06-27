@@ -33,6 +33,8 @@ defmodule BB.Kino.JointControl do
   alias BB.Robot.Runtime, as: RobotRuntime
   alias Kino.JS.Live, as: KinoLive
 
+  @position_throttle_ms 33
+
   @doc """
   Creates a new joint control widget for the given robot.
   """
@@ -59,7 +61,9 @@ defmodule BB.Kino.JointControl do
            robot: robot,
            robot_struct: robot_struct,
            joints: joints,
-           armed: armed
+           armed: armed,
+           pending_positions: %{},
+           position_flush_scheduled: false
          )}
 
       {:error, reason} ->
@@ -203,30 +207,50 @@ defmodule BB.Kino.JointControl do
         {:bb, [:sensor | _rest], %BB.Message{payload: %BB.Message.Sensor.JointState{} = js}},
         ctx
       ) do
-    positions =
-      Enum.zip(js.names, js.positions)
-      |> Map.new()
+    updates = Enum.zip(js.names, js.positions) |> Map.new()
 
     updated_joints =
       Enum.map(ctx.assigns.joints, fn joint ->
-        case Map.get(positions, joint.name) do
+        case Map.get(updates, joint.name) do
           nil -> joint
           pos -> %{joint | position: pos}
         end
       end)
 
+    # Each joint's estimator publishes its own single-joint JointState. Batch
+    # the updates and broadcast them together on a throttled flush, rather than
+    # one event per joint per estimator tick.
+    ctx =
+      ctx
+      |> assign(joints: updated_joints)
+      |> assign(pending_positions: Map.merge(ctx.assigns.pending_positions, updates))
+      |> schedule_position_flush()
+
+    {:noreply, ctx}
+  end
+
+  def handle_info(:flush_positions, ctx) do
     position_updates =
-      Enum.map(positions, fn {name, pos} ->
+      Enum.map(ctx.assigns.pending_positions, fn {name, pos} ->
         %{name: Atom.to_string(name), position: pos}
       end)
 
-    broadcast_event(ctx, "positions_updated", %{positions: position_updates})
+    unless position_updates == [] do
+      broadcast_event(ctx, "positions_updated", %{positions: position_updates})
+    end
 
-    {:noreply, assign(ctx, joints: updated_joints)}
+    {:noreply, assign(ctx, pending_positions: %{}, position_flush_scheduled: false)}
   end
 
   def handle_info(_msg, ctx) do
     {:noreply, ctx}
+  end
+
+  defp schedule_position_flush(%{assigns: %{position_flush_scheduled: true}} = ctx), do: ctx
+
+  defp schedule_position_flush(ctx) do
+    Process.send_after(self(), :flush_positions, @position_throttle_ms)
+    assign(ctx, position_flush_scheduled: true)
   end
 
   @impl true

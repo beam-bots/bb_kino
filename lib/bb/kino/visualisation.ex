@@ -27,6 +27,8 @@ defmodule BB.Kino.Visualisation do
   alias BB.Robot.Runtime, as: RobotRuntime
   alias Kino.JS.Live, as: KinoLive
 
+  @position_throttle_ms 33
+
   @doc """
   Creates a new 3D visualisation widget for the given robot.
   """
@@ -48,7 +50,8 @@ defmodule BB.Kino.Visualisation do
          assign(ctx,
            robot: robot,
            robot_struct: robot_struct,
-           positions: positions
+           positions: positions,
+           position_flush_scheduled: false
          )}
 
       {:error, reason} ->
@@ -78,18 +81,37 @@ defmodule BB.Kino.Visualisation do
         {:bb, [:sensor | _rest], %BB.Message{payload: %BB.Message.Sensor.JointState{} = js}},
         ctx
       ) do
-    positions =
-      Enum.zip(js.names, js.positions)
-      |> Map.new()
+    # Each joint's estimator publishes its own single-joint JointState on its
+    # own topic. Merge updates into a running pose and broadcast the complete
+    # pose on a throttled flush, rather than emitting one joint per message
+    # (which floods the transport and never carries a full pose).
+    updates = Enum.zip(js.names, js.positions) |> Map.new()
 
-    position_updates = serialize_positions(positions)
-    broadcast_event(ctx, "positions_updated", %{positions: position_updates})
+    ctx =
+      ctx
+      |> assign(positions: Map.merge(ctx.assigns.positions, updates))
+      |> schedule_position_flush()
 
-    {:noreply, assign(ctx, positions: positions)}
+    {:noreply, ctx}
+  end
+
+  def handle_info(:flush_positions, ctx) do
+    broadcast_event(ctx, "positions_updated", %{
+      positions: serialize_positions(ctx.assigns.positions)
+    })
+
+    {:noreply, assign(ctx, position_flush_scheduled: false)}
   end
 
   def handle_info(_msg, ctx) do
     {:noreply, ctx}
+  end
+
+  defp schedule_position_flush(%{assigns: %{position_flush_scheduled: true}} = ctx), do: ctx
+
+  defp schedule_position_flush(ctx) do
+    Process.send_after(self(), :flush_positions, @position_throttle_ms)
+    assign(ctx, position_flush_scheduled: true)
   end
 
   @impl true
