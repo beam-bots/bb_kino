@@ -52,7 +52,8 @@ defmodule BB.Kino.Command do
            robot: robot,
            commands: commands,
            state: state,
-           executing: nil
+           executing: nil,
+           command_pid: nil
          )}
 
       {:error, reason} ->
@@ -185,9 +186,20 @@ defmodule BB.Kino.Command do
 
     broadcast_event(ctx, "executing", %{command: cmd_name})
 
-    {:ok, task} = RobotRuntime.execute(ctx.assigns.robot, cmd_atom, parsed_args)
-    send(self(), {:await_task, task, cmd_name})
-    {:noreply, assign(ctx, executing: cmd_name)}
+    case RobotRuntime.execute(ctx.assigns.robot, cmd_atom, parsed_args) do
+      {:ok, pid} ->
+        await_command(self(), pid, cmd_name)
+        {:noreply, assign(ctx, executing: cmd_name, command_pid: pid)}
+
+      {:error, reason} ->
+        broadcast_event(ctx, "error", %{command: cmd_name, error: inspect(reason)})
+        {:noreply, assign(ctx, executing: nil, command_pid: nil)}
+    end
+  end
+
+  def handle_event("cancel", _params, ctx) do
+    if pid = ctx.assigns[:command_pid], do: BB.Command.cancel(pid)
+    {:noreply, ctx}
   end
 
   defp parse_value("true"), do: true
@@ -243,21 +255,30 @@ defmodule BB.Kino.Command do
     end
   end
 
+  # Await with `:infinity` rather than polling a deadline: a continuous command
+  # only returns when it stops or is cancelled, and the command's own DSL
+  # `timeout` already bounds runaways. The Cancel button stops the command and
+  # resolves this await.
+  defp await_command(widget_pid, pid, cmd_name) do
+    spawn(fn ->
+      send(widget_pid, {:command_done, cmd_name, BB.Command.await(pid, :infinity)})
+    end)
+  end
+
   @impl true
-  def handle_info({:await_task, task, cmd_name}, ctx) do
-    case Task.yield(task, 100) do
-      {:ok, {:ok, result}} ->
-        broadcast_event(ctx, "result", %{command: cmd_name, result: inspect(result)})
-        {:noreply, assign(ctx, executing: nil)}
+  def handle_info({:command_done, cmd_name, result}, ctx) do
+    case result do
+      {:ok, value} ->
+        broadcast_event(ctx, "result", %{command: cmd_name, result: inspect(value)})
 
-      {:ok, {:error, reason}} ->
+      {:ok, value, _metadata} ->
+        broadcast_event(ctx, "result", %{command: cmd_name, result: inspect(value)})
+
+      {:error, reason} ->
         broadcast_event(ctx, "error", %{command: cmd_name, error: inspect(reason)})
-        {:noreply, assign(ctx, executing: nil)}
-
-      nil ->
-        send(self(), {:await_task, task, cmd_name})
-        {:noreply, ctx}
     end
+
+    {:noreply, assign(ctx, executing: nil, command_pid: nil)}
   end
 
   def handle_info({:bb, [:state_machine], %BB.Message{payload: payload}}, ctx) do
@@ -353,9 +374,12 @@ defmodule BB.Kino.Command do
                   ${arg.doc ? `<span class="field-doc">${arg.doc}</span>` : ''}
                 </div>
               `).join('')}
-              <button type="submit" class="execute-btn" ${!canExecute || isExecuting ? 'disabled' : ''}>
-                ${isExecuting ? 'Executing...' : 'Execute'}
-              </button>
+              <div class="button-row">
+                <button type="submit" class="execute-btn" ${!canExecute || isExecuting ? 'disabled' : ''}>
+                  ${isExecuting ? 'Running…' : 'Execute'}
+                </button>
+                ${isExecuting ? '<button type="button" class="cancel-btn">Cancel</button>' : ''}
+              </div>
             </form>
           </div>
         `;
@@ -387,6 +411,13 @@ defmodule BB.Kino.Command do
 
           ctx.pushEvent('execute', { command: cmd.name, args: args });
         });
+
+        const cancelBtn = tabContent.querySelector('.cancel-btn');
+        if (cancelBtn) {
+          cancelBtn.addEventListener('click', () => {
+            ctx.pushEvent('cancel', { command: cmd.name });
+          });
+        }
       }
 
       function renderInput(arg) {
@@ -620,6 +651,12 @@ defmodule BB.Kino.Command do
       color: #999;
     }
 
+    .button-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
     .execute-btn {
       padding: 10px 20px;
       background: #1976d2;
@@ -628,7 +665,6 @@ defmodule BB.Kino.Command do
       border-radius: 4px;
       font-size: 14px;
       cursor: pointer;
-      align-self: flex-start;
     }
 
     .execute-btn:hover:not(:disabled) {
@@ -638,6 +674,20 @@ defmodule BB.Kino.Command do
     .execute-btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    .cancel-btn {
+      padding: 10px 20px;
+      background: #d32f2f;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .cancel-btn:hover {
+      background: #c62828;
     }
 
     .result-area {
