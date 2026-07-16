@@ -135,7 +135,7 @@ jobs:
             --title ${GITHUB_REF#refs/tags/} \
             --generate-notes \
             ${GITHUB_REF#refs/tags/}
-      - uses: team-alembic/staple-actions/actions/mix-hex-publish@8b0f5a1a7cadfbc86c2d00343d4a06a45352ef13 # main
+      - uses: team-alembic/staple-actions/actions/mix-hex-publish@d8e64cbaa32c80b6cc199ec050612ec6d0e072f9 # main
         with:
           mix-env: dev
           hex-api-key: ${{ secrets.HEX_API_KEY }}
