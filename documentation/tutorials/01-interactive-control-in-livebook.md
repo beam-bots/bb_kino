@@ -29,8 +29,8 @@ Open Livebook and create a new notebook. Add a setup cell with dependencies:
 
 ```elixir
 Mix.install([
-  {:bb, "~> 0.12"},
-  {:bb_kino, "~> 0.1"}
+  {:bb, "~> 0.16"},
+  {:bb_kino, "~> 0.3"}
 ])
 ```
 
