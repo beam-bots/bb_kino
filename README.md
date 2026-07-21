@@ -37,7 +37,7 @@ Add `bb_kino` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:bb_kino, "~> 0.1"}
+    {:bb_kino, "~> 0.3"}
   ]
 end
 ```
@@ -135,7 +135,7 @@ Interactive Three.js-based robot visualisation:
 ## Requirements
 
 - Elixir ~> 1.19
-- BB framework ~> 0.4
+- BB framework ~> 0.16
 - Kino ~> 0.18
 
 ## Documentation

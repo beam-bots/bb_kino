@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-defmodule BB.Servo.Kino.MixProject do
+defmodule BB.Kino.MixProject do
   use Mix.Project
 
   @moduledoc """
