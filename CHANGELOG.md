@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.3.8](https://github.com/beam-bots/bb_kino/compare/v0.3.7...v0.3.8) (2026-07-24)
+
+
+
+
+### Bug Fixes:
+
+* correct project metadata and dependency docs (#99) by James Harton
+
 ## [v0.3.7](https://github.com/beam-bots/bb_kino/compare/v0.3.6...v0.3.7) (2026-06-27)
 
 
