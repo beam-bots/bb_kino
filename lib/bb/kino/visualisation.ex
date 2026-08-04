@@ -42,7 +42,7 @@ defmodule BB.Kino.Visualisation do
     case RobotContext.validate_robot(robot_module) do
       {:ok, robot} ->
         robot_struct = RobotRuntime.get_robot(robot)
-        positions = RobotRuntime.positions(robot)
+        positions = RobotRuntime.configurations(robot)
 
         BB.subscribe(robot, [:sensor])
 

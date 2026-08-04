@@ -46,7 +46,7 @@ defmodule BB.Kino.Examples.TestRobot do
           lower = joint.limits[:lower] || -:math.pi()
           upper = joint.limits[:upper] || :math.pi()
 
-          positions = RobotRuntime.positions(robot)
+          positions = RobotRuntime.configurations(robot)
           start_pos = Map.get(positions, joint_name, 0.0)
 
           step_delay = div(duration_ms, steps * 2)
@@ -123,7 +123,7 @@ defmodule BB.Kino.Examples.TestRobot do
 
       robot = context.robot_module
       robot_struct = RobotRuntime.get_robot(robot)
-      positions = RobotRuntime.positions(robot)
+      positions = RobotRuntime.configurations(robot)
 
       step_delay = div(duration_ms, steps)
       joint_names = Map.keys(robot_struct.joints)
@@ -199,7 +199,7 @@ defmodule BB.Kino.Examples.TestRobot do
       speed = Map.get(goal, :speed, 1.0)
 
       robot = context.robot_module
-      positions = RobotRuntime.positions(robot)
+      positions = RobotRuntime.configurations(robot)
 
       shoulder_start = Map.get(positions, :shoulder_joint, 0.0)
       elbow_start = Map.get(positions, :elbow_joint, 0.0)
