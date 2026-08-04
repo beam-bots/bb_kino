@@ -11,6 +11,13 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.4.0](https://github.com/beam-bots/bb_kino/compare/v0.3.8...v0.4.0) (2026-08-04)
+### Breaking Changes:
+
+* follow the `positions` to `configurations` rename in core (#111) by James Harton
+
+
+
 ## [v0.3.8](https://github.com/beam-bots/bb_kino/compare/v0.3.7...v0.3.8) (2026-07-24)
 
 
