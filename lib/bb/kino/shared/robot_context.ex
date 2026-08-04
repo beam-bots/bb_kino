@@ -44,7 +44,7 @@ defmodule BB.Kino.Shared.RobotContext do
   def fetch_initial_state(robot_module) do
     %{
       robot_struct: RobotRuntime.get_robot(robot_module),
-      positions: RobotRuntime.positions(robot_module),
+      positions: RobotRuntime.configurations(robot_module),
       velocities: RobotRuntime.velocities(robot_module),
       state: RobotRuntime.state(robot_module),
       armed: BB.Safety.armed?(robot_module)
