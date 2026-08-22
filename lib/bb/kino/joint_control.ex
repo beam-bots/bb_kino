@@ -12,8 +12,9 @@ defmodule BB.Kino.JointControl do
   - Position limits (min/max)
   - Draggable slider for setting target position
 
-  **Safety**: Controls are only enabled when the robot is armed.
-  Position commands are not sent when the robot is disarmed.
+  **Safety**: Controls are only enabled when the robot is armed. Moving a
+  slider waits for the actuator to accept the command and shows the refusal if
+  it doesn't, so a joint that isn't moving says why.
 
   ## Usage
 
@@ -34,6 +35,11 @@ defmodule BB.Kino.JointControl do
   alias Kino.JS.Live, as: KinoLive
 
   @position_throttle_ms 33
+
+  # A drag is a stream of targets of which only the latest matters, so waiting
+  # `BB.Actuator.set_position/4`'s default five seconds for one of them would
+  # cost more than the answer is worth.
+  @command_timeout_ms 250
 
   @doc """
   Creates a new joint control widget for the given robot.
@@ -62,6 +68,7 @@ defmodule BB.Kino.JointControl do
            robot_struct: robot_struct,
            joints: joints,
            armed: armed,
+           command_error: nil,
            pending_positions: %{},
            position_flush_scheduled: false
          )}
@@ -117,7 +124,8 @@ defmodule BB.Kino.JointControl do
     else
       payload = %{
         joints: format_joints_for_client(ctx.assigns.joints),
-        armed: ctx.assigns.armed
+        armed: ctx.assigns.armed,
+        command_error: ctx.assigns.command_error
       }
 
       {:ok, payload, ctx}
@@ -139,32 +147,55 @@ defmodule BB.Kino.JointControl do
 
   @impl true
   def handle_event("set_position", %{"joint" => joint_name, "position" => position}, ctx) do
-    ctx = maybe_set_position(ctx, joint_name, position)
+    ctx = set_position(ctx, joint_name, position)
     {:noreply, ctx}
   end
 
-  defp maybe_set_position(ctx, _joint_name, _position) when not ctx.assigns.armed, do: ctx
-
-  defp maybe_set_position(ctx, joint_name, position) do
+  defp set_position(ctx, joint_name, position) do
     joint_atom = String.to_existing_atom(joint_name)
 
     case find_joint(ctx.assigns.joints, joint_atom) do
       nil -> ctx
       %{actuator: nil} -> send_simulated_position(ctx, joint_atom, position)
-      joint -> send_position_command_and_return(ctx, joint_atom, joint.actuator, position)
+      joint -> send_position_command(ctx, joint.actuator, position)
     end
   end
 
   defp find_joint(joints, name), do: Enum.find(joints, fn j -> j.name == name end)
 
-  defp send_position_command_and_return(ctx, joint_name, actuator, position) do
-    send_position_command(ctx.assigns.robot, joint_name, actuator, position)
-    ctx
+  defp send_position_command(ctx, actuator_name, position) do
+    message = refusal(ctx.assigns.robot, actuator_name, position)
+
+    # A drag pushes an event per frame, so tell the client only when the answer
+    # changes rather than re-broadcasting the same one sixty times a second.
+    if message == ctx.assigns.command_error do
+      ctx
+    else
+      broadcast_event(ctx, "command_error", %{message: message})
+      assign(ctx, command_error: message)
+    end
   end
 
-  defp send_position_command(robot, _joint_name, actuator_name, position) do
-    BB.Actuator.set_position!(robot, actuator_name, position)
+  defp refusal(robot, actuator_name, position) do
+    case BB.Actuator.set_position(robot, actuator_name, position, timeout: @command_timeout_ms) do
+      :ok -> nil
+      {:error, reason} when is_exception(reason) -> Exception.message(reason)
+      {:error, reason} -> inspect(reason)
+    end
+  catch
+    # `set_position/4` calls the actuator, so one that has died or is too busy to
+    # answer would otherwise exit the widget along with it.
+    :exit, {:noproc, _} ->
+      "#{inspect(actuator_name)} is not running"
+
+    :exit, {:timeout, _} ->
+      "#{inspect(actuator_name)} did not answer within #{@command_timeout_ms}ms"
+
+    :exit, _reason ->
+      "#{inspect(actuator_name)} failed while handling the command"
   end
+
+  defp send_simulated_position(ctx, _joint_name, _position) when not ctx.assigns.armed, do: ctx
 
   defp send_simulated_position(ctx, joint_name, position) do
     # Update internal state
@@ -281,6 +312,7 @@ defmodule BB.Kino.JointControl do
             <span class="title">Joint Control</span>
             <span class="armed-indicator"></span>
           </div>
+          <div class="command-error" hidden></div>
           <div class="joint-table">
             <div class="table-header">
               <span class="col-name">Joint</span>
@@ -294,11 +326,49 @@ defmodule BB.Kino.JointControl do
       `;
 
       const armedIndicator = ctx.root.querySelector(".armed-indicator");
+      const commandError = ctx.root.querySelector(".command-error");
       const tableBody = ctx.root.querySelector(".table-body");
 
       let joints = payload.joints || [];
       let armed = payload.armed;
       let activeSlider = null;  // Track which slider is being dragged
+
+      const COMMAND_THROTTLE_MS = 33;
+      let lastCommandAt = 0;
+      let trailingCommand = null;
+      let trailingTimer = null;
+
+      function showCommandError(message) {
+        commandError.textContent = message || "";
+        commandError.hidden = !message;
+      }
+
+      function pushPosition(joint, position) {
+        lastCommandAt = Date.now();
+        ctx.pushEvent('set_position', { joint: joint, position: position });
+      }
+
+      // The server waits for the actuator to accept each command, so an
+      // unthrottled drag would queue events faster than the robot can answer.
+      // The trailing send makes sure the position you let go on is the one the
+      // joint ends up at.
+      function commandPosition(joint, position) {
+        const sinceLast = Date.now() - lastCommandAt;
+
+        if (sinceLast >= COMMAND_THROTTLE_MS) {
+          pushPosition(joint, position);
+          return;
+        }
+
+        trailingCommand = { joint: joint, position: position };
+
+        if (trailingTimer === null) {
+          trailingTimer = setTimeout(() => {
+            trailingTimer = null;
+            pushPosition(trailingCommand.joint, trailingCommand.position);
+          }, COMMAND_THROTTLE_MS - sinceLast);
+        }
+      }
 
       function formatPosition(pos, type) {
         if (pos === null || pos === undefined) return "N/A";
@@ -368,14 +438,18 @@ defmodule BB.Kino.JointControl do
           slider.addEventListener('input', (e) => {
             if (!armed) return;
             activeSlider = jointName;
-            const position = parseFloat(e.target.value);
-            ctx.pushEvent('set_position', { joint: jointName, position: position });
+            commandPosition(jointName, parseFloat(e.target.value));
           });
         });
       }
 
       updateArmedIndicator();
+      showCommandError(payload.command_error);
       renderJoints();
+
+      ctx.handleEvent('command_error', ({ message }) => {
+        showCommandError(message);
+      });
 
       ctx.handleEvent('armed_changed', ({ armed: a }) => {
         armed = a;
@@ -533,6 +607,16 @@ defmodule BB.Kino.JointControl do
     .position-slider:disabled {
       opacity: 0.4;
       cursor: not-allowed;
+    }
+
+    .command-error {
+      margin: 8px 12px 0;
+      padding: 8px 12px;
+      border-radius: 4px;
+      background: #fdecea;
+      border: 1px solid #f5c6c2;
+      color: #c62828;
+      font-size: 12px;
     }
 
     .bb-joints-error {

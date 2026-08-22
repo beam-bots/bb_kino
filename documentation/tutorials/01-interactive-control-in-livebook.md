@@ -102,7 +102,8 @@ BB.Kino.joints(DemoRobot)
 With the robot armed, drag the sliders to move joints. The sliders:
 - Respect joint limits from the DSL
 - Show current position in degrees
-- Send commands via `BB.Actuator.set_position/4`
+- Send commands via `BB.Actuator.set_position/4`, waiting for the actuator to
+  accept each one and showing the refusal above the table if it doesn't
 - Are disabled when the robot is disarmed
 
 ## Step 6: Add 3D Visualisation
