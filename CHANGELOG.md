@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.4.1](https://github.com/beam-bots/bb_kino/compare/v0.4.0...v0.4.1) (2026-08-22)
+
+
+
+
+### Improvements:
+
+* tell the user when a joint refuses a slider command (#121) by James Harton
+
 ## [v0.4.0](https://github.com/beam-bots/bb_kino/compare/v0.3.8...v0.4.0) (2026-08-04)
 ### Breaking Changes:
 
