@@ -24,6 +24,10 @@ defmodule BB.Kino.Visualisation do
   use Kino.JS.Live
 
   alias BB.Kino.Shared.RobotContext
+  alias BB.Math.Quaternion
+  alias BB.Math.Transform
+  alias BB.Math.Transform2D
+  alias BB.Math.Vec3
   alias BB.Robot.Runtime, as: RobotRuntime
   alias Kino.JS.Live, as: KinoLive
 
@@ -65,7 +69,7 @@ defmodule BB.Kino.Visualisation do
       {:ok, %{error: ctx.assigns.error}, ctx}
     else
       topology = serialize_topology(ctx.assigns.robot_struct)
-      positions = serialize_positions(ctx.assigns.positions)
+      positions = serialize_positions(ctx.assigns.positions, ctx.assigns.robot_struct)
 
       payload = %{
         topology: topology,
@@ -97,7 +101,7 @@ defmodule BB.Kino.Visualisation do
 
   def handle_info(:flush_positions, ctx) do
     broadcast_event(ctx, "positions_updated", %{
-      positions: serialize_positions(ctx.assigns.positions)
+      positions: serialize_positions(ctx.assigns.positions, ctx.assigns.robot_struct)
     })
 
     {:noreply, assign(ctx, position_flush_scheduled: false)}
@@ -258,12 +262,40 @@ defmodule BB.Kino.Visualisation do
     }
   end
 
-  defp serialize_positions(positions) do
-    positions
-    |> Enum.map(fn {name, value} ->
-      {Atom.to_string(name), value}
+  defp serialize_positions(positions, robot_struct) do
+    Map.new(positions, fn {name, configuration} ->
+      {Atom.to_string(name), serialize_configuration(configuration, robot_struct.joints[name])}
     end)
-    |> Map.new()
+  end
+
+  defp serialize_configuration(configuration, _joint) when is_number(configuration),
+    do: configuration
+
+  # A planar configuration only means anything alongside the plane normal it was
+  # measured against, and a floating one is already a full pose. Lifting the
+  # planar case here — through the same `Transform2D.to_transform/2` forward
+  # kinematics uses — keeps the plane basis convention in `bb`, and leaves the
+  # browser a pose it can apply without knowing about either.
+  defp serialize_configuration(%Transform2D{} = configuration, joint) do
+    configuration
+    |> Transform2D.to_transform(plane_normal(joint))
+    |> serialize_pose()
+  end
+
+  defp serialize_configuration(%Transform{} = configuration, _joint),
+    do: serialize_pose(configuration)
+
+  defp plane_normal(%{axis: {x, y, z}}), do: Vec3.new(x, y, z)
+  defp plane_normal(_joint), do: Vec3.unit_z()
+
+  defp serialize_pose(transform) do
+    [x, y, z] = transform |> Transform.get_translation() |> Vec3.to_list()
+    [qx, qy, qz, qw] = transform |> Transform.get_quaternion() |> Quaternion.to_xyzw_list()
+
+    %{
+      xyz: %{x: x, y: y, z: z},
+      quat: %{x: qx, y: qy, z: qz, w: qw}
+    }
   end
 
   asset "main.js" do
