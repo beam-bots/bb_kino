@@ -30,7 +30,9 @@ defmodule BB.Kino.Parameters do
   alias BB.Parameter
   alias BB.Parameter.Changed, as: ParameterChanged
   alias BB.Robot.Runtime, as: RobotRuntime
+  alias BB.Unit
   alias Kino.JS.Live, as: KinoLive
+  alias Localize.Unit, as: LocalizeUnit
 
   @doc """
   Creates a new parameters widget for the given robot.
@@ -257,16 +259,31 @@ defmodule BB.Kino.Parameters do
     %{
       path: format_path(param[:path] || param.id),
       displayName: param.display_name,
-      value: param.value,
+      value: format_value_for_client(param.value, param.type),
       type: param.type,
-      min: param.min,
-      max: param.max,
+      min: format_value_for_client(param.min, param.type),
+      max: format_value_for_client(param.max, param.type),
       doc: param.doc
     }
   end
 
   defp format_path(path) when is_list(path), do: Enum.map(path, &Atom.to_string/1)
   defp format_path(id), do: id
+
+  defp format_value_for_client(%LocalizeUnit{} = value, "unit:" <> unit),
+    do: magnitude_in(value, Unit.unit_name(unit))
+
+  defp format_value_for_client(%LocalizeUnit{value: magnitude}, _type), do: magnitude
+  defp format_value_for_client(value, _type), do: value
+
+  defp magnitude_in(%LocalizeUnit{name: unit, value: magnitude}, unit), do: magnitude
+
+  defp magnitude_in(%LocalizeUnit{value: magnitude} = value, unit) do
+    case LocalizeUnit.convert(value, unit) do
+      {:ok, converted} -> converted.value
+      {:error, _reason} -> magnitude
+    end
+  end
 
   @impl true
   def handle_event("set_parameter", %{"path" => path_strings, "value" => value}, ctx) do
@@ -365,7 +382,12 @@ defmodule BB.Kino.Parameters do
 
   defp parse_value(value, "float"), do: parse_float_value(value)
 
-  defp parse_value(value, "unit:" <> _unit), do: parse_float_value(value)
+  defp parse_value(value, "unit:" <> unit) do
+    case LocalizeUnit.new(parse_float_value(value), Unit.unit_name(unit)) do
+      {:ok, unit_value} -> unit_value
+      {:error, _reason} -> value
+    end
+  end
 
   defp parse_value(value, "atom") do
     case to_string(value) do
@@ -401,7 +423,7 @@ defmodule BB.Kino.Parameters do
 
     broadcast_event(ctx, "parameter_changed", %{
       path: Enum.map(path, &Atom.to_string/1),
-      value: changed.new_value
+      value: format_value_for_client(changed.new_value, get_param_type(ctx, path))
     })
 
     {:noreply, assign(ctx, parameters: updated_params)}
