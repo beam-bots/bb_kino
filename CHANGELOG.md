@@ -11,6 +11,17 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.4.2](https://github.com/beam-bots/bb_kino/compare/v0.4.1...v0.4.2) (2026-08-23)
+
+
+
+
+### Bug Fixes:
+
+* send multi-degree-of-freedom joint configurations as a pose (#125) by James Harton
+
+
+
 ## [v0.4.1](https://github.com/beam-bots/bb_kino/compare/v0.4.0...v0.4.1) (2026-08-22)
 
 
