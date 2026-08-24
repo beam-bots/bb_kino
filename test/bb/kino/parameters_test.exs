@@ -84,6 +84,40 @@ defmodule BB.Kino.ParametersTest do
       assert_in_delta value, 14.897, 0.001
     end
 
+    test "stores an atom the runtime already knows" do
+      kino = Parameters.new(ParameterRobot)
+      connect(kino)
+
+      push_event(kino, "set_parameter", %{"path" => ["motion", "profile"], "value" => ":cubic"})
+
+      assert_broadcast_event(kino, "parameter_changed", %{
+        path: ["motion", "profile"],
+        value: :cubic
+      })
+
+      assert Parameter.get(ParameterRobot, [:motion, :profile]) == {:ok, :cubic}
+    end
+
+    test "reports an atom the runtime has never seen without taking the widget down" do
+      kino = Parameters.new(ParameterRobot)
+      connect(kino)
+
+      push_event(kino, "set_parameter", %{
+        "path" => ["motion", "profile"],
+        "value" => "no_such_profile"
+      })
+
+      assert_broadcast_event(kino, "error", %{
+        path: ["motion", "profile"],
+        value: :linear,
+        error: message
+      })
+
+      assert is_binary(message)
+      assert Parameter.get(ParameterRobot, [:motion, :profile]) == {:ok, :linear}
+      assert Process.alive?(kino.pid)
+    end
+
     test "reports a unit value outside the declared bounds as an error" do
       kino = Parameters.new(ParameterRobot)
       connect(kino)

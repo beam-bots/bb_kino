@@ -288,7 +288,8 @@ defmodule BB.Kino.Parameters do
   @impl true
   def handle_event("set_parameter", %{"path" => path_strings, "value" => value}, ctx) do
     path = Enum.map(path_strings, &String.to_existing_atom/1)
-    parsed_value = parse_value(value, get_param_type(ctx, path))
+    param = get_param(ctx, path)
+    parsed_value = parse_value(value, param_type(param))
 
     case Parameter.set(ctx.assigns.robot, path, parsed_value) do
       :ok ->
@@ -297,7 +298,8 @@ defmodule BB.Kino.Parameters do
       {:error, reason} ->
         broadcast_event(ctx, "error", %{
           path: path_strings,
-          error: inspect(reason)
+          error: refusal(reason),
+          value: format_value_for_client(param[:value], param_type(param))
         })
 
         {:noreply, ctx}
@@ -310,7 +312,8 @@ defmodule BB.Kino.Parameters do
         ctx
       ) do
     bridge_atom = String.to_existing_atom(bridge)
-    parsed_value = parse_value(value, get_remote_param_type(ctx, bridge_atom, id))
+    param = get_remote_param(ctx, bridge_atom, id)
+    parsed_value = parse_value(value, param_type(param))
 
     case Parameter.set_remote(ctx.assigns.robot, bridge_atom, id, parsed_value) do
       :ok ->
@@ -320,7 +323,8 @@ defmodule BB.Kino.Parameters do
         broadcast_event(ctx, "error", %{
           bridge: bridge,
           id: id,
-          error: inspect(reason)
+          error: refusal(reason),
+          value: format_value_for_client(param[:value], param_type(param))
         })
 
         {:noreply, ctx}
@@ -351,7 +355,10 @@ defmodule BB.Kino.Parameters do
   defp parse_tab_id("bridge:" <> name), do: {:bridge, String.to_existing_atom(name)}
   defp parse_tab_id(name), do: String.to_existing_atom(name)
 
-  defp get_param_type(ctx, path) do
+  defp refusal(reason) when is_exception(reason), do: Exception.message(reason)
+  defp refusal(reason), do: inspect(reason)
+
+  defp get_param(ctx, path) do
     tab_id =
       case path do
         [single] when is_atom(single) -> :general
@@ -361,15 +368,15 @@ defmodule BB.Kino.Parameters do
     ctx.assigns.parameters
     |> Map.get(tab_id, %{})
     |> Map.get(path, %{})
-    |> Map.get(:type, "string")
   end
 
-  defp get_remote_param_type(ctx, bridge, id) do
+  defp get_remote_param(ctx, bridge, id) do
     ctx.assigns.parameters
     |> Map.get({:bridge, bridge}, %{})
     |> Map.get(id, %{})
-    |> Map.get(:type, "string")
   end
+
+  defp param_type(param), do: Map.get(param, :type, "string")
 
   defp parse_value(value, "boolean"), do: value == true or value == "true"
 
@@ -390,9 +397,14 @@ defmodule BB.Kino.Parameters do
   end
 
   defp parse_value(value, "atom") do
-    case to_string(value) do
-      ":" <> rest -> String.to_existing_atom(rest)
-      rest -> String.to_existing_atom(rest)
+    name = value |> to_string() |> String.trim_leading(":")
+
+    try do
+      String.to_existing_atom(name)
+    rescue
+      # An atom the runtime has never heard of can't be a legal value for the
+      # parameter either, so hand the text on and let the store refuse it.
+      ArgumentError -> name
     end
   end
 
@@ -423,7 +435,7 @@ defmodule BB.Kino.Parameters do
 
     broadcast_event(ctx, "parameter_changed", %{
       path: Enum.map(path, &Atom.to_string/1),
-      value: format_value_for_client(changed.new_value, get_param_type(ctx, path))
+      value: format_value_for_client(changed.new_value, param_type(get_param(ctx, path)))
     })
 
     {:noreply, assign(ctx, parameters: updated_params)}
@@ -645,6 +657,7 @@ defmodule BB.Kino.Parameters do
 
       function sendParameterChange(input, value, isRemote) {
         const pathStr = input.dataset.path;
+        clearParamError(pathStr);
 
         if (isRemote) {
           const bridge = input.dataset.bridge;
@@ -653,6 +666,37 @@ defmodule BB.Kino.Parameters do
           const path = pathStr.split('.');
           ctx.pushEvent('set_parameter', { path, value });
         }
+      }
+
+      function updateInputs(pathKey, value) {
+        tabContent.querySelectorAll(`input[data-path="${pathKey}"]`).forEach(input => {
+          if (input.type === 'checkbox') {
+            input.checked = value;
+          } else if (input.classList.contains('atom-input')) {
+            input.value = value === null || value === undefined ? '' : ':' + value;
+          } else {
+            input.value = value;
+          }
+        });
+      }
+
+      function showParamError(pathKey, message) {
+        const info = tabContent.querySelector(`.param-row[data-path="${pathKey}"] .param-info`);
+        if (!info) return;
+
+        let element = info.querySelector('.param-error');
+        if (!element) {
+          element = document.createElement('span');
+          element.className = 'error-text param-error';
+          element.setAttribute('role', 'alert');
+          info.appendChild(element);
+        }
+        element.textContent = message;
+      }
+
+      function clearParamError(pathKey) {
+        const element = tabContent.querySelector(`.param-row[data-path="${pathKey}"] .param-error`);
+        if (element) element.remove();
       }
 
       function setupRefreshHandler() {
@@ -671,14 +715,8 @@ defmodule BB.Kino.Parameters do
 
       ctx.handleEvent('parameter_changed', ({ path, value }) => {
         const pathKey = path.join('.');
-        const input = tabContent.querySelector(`input[data-path="${pathKey}"]`);
-        if (input) {
-          if (input.type === 'checkbox') {
-            input.checked = value;
-          } else {
-            input.value = value;
-          }
-        }
+        clearParamError(pathKey);
+        updateInputs(pathKey, value);
       });
 
       ctx.handleEvent('remote_refreshed', ({ bridge, parameters: newParams }) => {
@@ -689,8 +727,10 @@ defmodule BB.Kino.Parameters do
         }
       });
 
-      ctx.handleEvent('error', ({ path, error }) => {
-        console.error('Parameter error:', path, error);
+      ctx.handleEvent('error', ({ path, id, error, value }) => {
+        const pathKey = path ? path.join('.') : id;
+        showParamError(pathKey, error);
+        updateInputs(pathKey, value);
       });
     }
     """
@@ -917,6 +957,11 @@ defmodule BB.Kino.Parameters do
     .error-text {
       color: #c62828;
       margin-bottom: 12px;
+    }
+
+    .param-error {
+      font-size: 11px;
+      margin-bottom: 0;
     }
 
     .refresh-btn {
