@@ -25,6 +25,7 @@ defmodule BB.Kino.Test.ParameterRobot do
       )
 
       param(:reach, type: {:unit, :meter}, default: ~u(0.5 meter))
+      param(:profile, type: :atom, default: :linear)
     end
   end
 
