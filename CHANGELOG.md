@@ -11,6 +11,17 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.4.3](https://github.com/beam-bots/bb_kino/compare/v0.4.2...v0.4.3) (2026-08-27)
+
+
+
+
+### Bug Fixes:
+
+* refuse an unknown atom parameter value instead of dying on it (#130) by James Harton
+
+* render unit-typed parameters as magnitudes in the parameters widget (#127) by James Harton
+
 ## [v0.4.2](https://github.com/beam-bots/bb_kino/compare/v0.4.1...v0.4.2) (2026-08-23)
 
 
