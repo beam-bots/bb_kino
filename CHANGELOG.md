@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.4.4](https://github.com/beam-bots/bb_kino/compare/v0.4.3...v0.4.4) (2026-09-12)
+
+
+
+
+### Improvements:
+
+* cancel any running command, not just ones the widget started (#142) by James Harton
+
 ## [v0.4.3](https://github.com/beam-bots/bb_kino/compare/v0.4.2...v0.4.3) (2026-08-27)
 
 
