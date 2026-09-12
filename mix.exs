@@ -76,7 +76,7 @@ defmodule BB.Kino.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:bb, bb_dep("~> 0.30")},
+      {:bb, bb_dep("~> 0.31 and >= 0.31.1")},
       {:kino, "~> 0.18"},
 
       # dev/test
