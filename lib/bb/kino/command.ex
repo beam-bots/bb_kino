@@ -44,8 +44,11 @@ defmodule BB.Kino.Command do
         commands = discover_commands(robot)
         state = RobotRuntime.state(robot)
 
-        # Subscribe to state changes so we can update command availability
+        # Subscribe to state changes so we can update command availability, and
+        # to command events so the running list reflects commands started
+        # elsewhere.
         BB.subscribe(robot, [:state_machine])
+        BB.subscribe(robot, [:command])
 
         {:ok,
          assign(ctx,
@@ -53,7 +56,7 @@ defmodule BB.Kino.Command do
            commands: commands,
            state: state,
            executing: nil,
-           command_pid: nil
+           running: running_commands(robot)
          )}
 
       {:error, reason} ->
@@ -146,7 +149,8 @@ defmodule BB.Kino.Command do
       payload = %{
         commands: format_commands_for_client(ctx.assigns.commands),
         state: Atom.to_string(ctx.assigns.state),
-        executing: ctx.assigns.executing
+        executing: ctx.assigns.executing,
+        running: ctx.assigns.running
       }
 
       {:ok, payload, ctx}
@@ -175,6 +179,22 @@ defmodule BB.Kino.Command do
   defp format_default(nil), do: nil
   defp format_default(value), do: inspect(value)
 
+  # Read straight from the robot's registry rather than tracking what this
+  # widget started, so commands kicked off by automation or another surface
+  # can be cancelled from here too.
+  defp running_commands(robot) do
+    robot
+    |> BB.Command.list()
+    |> Enum.sort_by(& &1.started_at, DateTime)
+    |> Enum.map(fn entry ->
+      %{
+        name: Atom.to_string(entry.name),
+        execution_id: BB.Command.encode_execution_id(entry.execution_id),
+        started_at: Calendar.strftime(entry.started_at, "%H:%M:%S")
+      }
+    end)
+  end
+
   @impl true
   def handle_event("execute", %{"command" => cmd_name, "args" => args}, ctx) do
     cmd_atom = String.to_existing_atom(cmd_name)
@@ -189,16 +209,16 @@ defmodule BB.Kino.Command do
     case RobotRuntime.execute(ctx.assigns.robot, cmd_atom, parsed_args) do
       {:ok, pid} ->
         await_command(self(), pid, cmd_name)
-        {:noreply, assign(ctx, executing: cmd_name, command_pid: pid)}
+        {:noreply, assign(ctx, executing: cmd_name)}
 
       {:error, reason} ->
         broadcast_event(ctx, "error", %{command: cmd_name, error: inspect(reason)})
-        {:noreply, assign(ctx, executing: nil, command_pid: nil)}
+        {:noreply, assign(ctx, executing: nil)}
     end
   end
 
-  def handle_event("cancel", _params, ctx) do
-    if pid = ctx.assigns[:command_pid], do: BB.Command.cancel(pid)
+  def handle_event("cancel", %{"execution_id" => execution_id}, ctx) do
+    BB.Command.cancel(ctx.assigns.robot, execution_id)
     {:noreply, ctx}
   end
 
@@ -278,12 +298,18 @@ defmodule BB.Kino.Command do
         broadcast_event(ctx, "error", %{command: cmd_name, error: inspect(reason)})
     end
 
-    {:noreply, assign(ctx, executing: nil, command_pid: nil)}
+    {:noreply, assign(ctx, executing: nil)}
   end
 
   def handle_info({:bb, [:state_machine], %BB.Message{payload: payload}}, ctx) do
     broadcast_event(ctx, "state_changed", %{state: Atom.to_string(payload.to)})
     {:noreply, assign(ctx, state: payload.to)}
+  end
+
+  def handle_info({:bb, [:command | _], %BB.Message{}}, ctx) do
+    running = running_commands(ctx.assigns.robot)
+    broadcast_event(ctx, "running_changed", %{running: running})
+    {:noreply, assign(ctx, running: running)}
   end
 
   def handle_info(_msg, ctx) do
@@ -294,6 +320,7 @@ defmodule BB.Kino.Command do
   def terminate(_reason, ctx) do
     if ctx.assigns[:robot] do
       BB.unsubscribe(ctx.assigns.robot, [:state_machine])
+      BB.unsubscribe(ctx.assigns.robot, [:command])
     end
 
     :ok
@@ -314,16 +341,19 @@ defmodule BB.Kino.Command do
       const commands = payload.commands || [];
       let currentState = payload.state;
       let executing = payload.executing;
+      let running = payload.running || [];
       let activeTab = commands.length > 0 ? commands[0].name : null;
 
       ctx.root.innerHTML = `
         <div class="bb-commands">
+          <div class="running-area" style="display: none;"></div>
           <div class="tab-bar"></div>
           <div class="tab-content"></div>
           <div class="result-area" style="display: none;"></div>
         </div>
       `;
 
+      const runningArea = ctx.root.querySelector(".running-area");
       const tabBar = ctx.root.querySelector(".tab-bar");
       const tabContent = ctx.root.querySelector(".tab-content");
       const resultArea = ctx.root.querySelector(".result-area");
@@ -378,7 +408,6 @@ defmodule BB.Kino.Command do
                 <button type="submit" class="execute-btn" ${!canExecute || isExecuting ? 'disabled' : ''}>
                   ${isExecuting ? 'Running…' : 'Execute'}
                 </button>
-                ${isExecuting ? '<button type="button" class="cancel-btn">Cancel</button>' : ''}
               </div>
             </form>
           </div>
@@ -412,12 +441,34 @@ defmodule BB.Kino.Command do
           ctx.pushEvent('execute', { command: cmd.name, args: args });
         });
 
-        const cancelBtn = tabContent.querySelector('.cancel-btn');
-        if (cancelBtn) {
-          cancelBtn.addEventListener('click', () => {
-            ctx.pushEvent('cancel', { command: cmd.name });
-          });
+      }
+
+      function renderRunning() {
+        if (running.length === 0) {
+          runningArea.style.display = "none";
+          runningArea.innerHTML = "";
+          return;
         }
+
+        runningArea.style.display = "block";
+        runningArea.innerHTML = `
+          <h4 class="running-title">Running</h4>
+          ${running.map(entry => `
+            <div class="running-entry">
+              <span class="command-name">${entry.name}</span>
+              <span class="running-since">${entry.started_at}</span>
+              <button type="button" class="cancel-btn" data-execution-id="${entry.execution_id}">
+                Cancel
+              </button>
+            </div>
+          `).join('')}
+        `;
+
+        runningArea.querySelectorAll('.cancel-btn').forEach(button => {
+          button.addEventListener('click', () => {
+            ctx.pushEvent('cancel', { execution_id: button.dataset.executionId });
+          });
+        });
       }
 
       function renderInput(arg) {
@@ -471,6 +522,12 @@ defmodule BB.Kino.Command do
 
       renderTabs();
       renderContent();
+      renderRunning();
+
+      ctx.handleEvent('running_changed', (payload) => {
+        running = payload.running || [];
+        renderRunning();
+      });
 
       ctx.handleEvent('executing', ({ command }) => {
         executing = command;
@@ -506,6 +563,39 @@ defmodule BB.Kino.Command do
       border-radius: 8px;
       background: #fafafa;
       overflow: hidden;
+    }
+
+    .running-area {
+      padding: 12px 16px;
+      background: #f5f5f5;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .running-title {
+      margin: 0 0 8px 0;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #888;
+    }
+
+    .running-entry {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 4px 0;
+    }
+
+    .running-entry .command-name {
+      font-size: 14px;
+    }
+
+    .running-since {
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      color: #888;
+      margin-right: auto;
     }
 
     .tab-bar {

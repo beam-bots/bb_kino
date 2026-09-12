@@ -9,6 +9,7 @@ defmodule BB.Kino.CommandTest do
 
   alias BB.Kino.Command
   alias BB.Kino.Test.CommandRobot
+  alias BB.Robot.Runtime
 
   setup :configure_livebook_bridge
 
@@ -30,7 +31,28 @@ defmodule BB.Kino.CommandTest do
     refute_receive {:runtime_broadcast, "js_live", ^ref, {:event, "result", _, _}}, 100
     refute_receive {:runtime_broadcast, "js_live", ^ref, {:event, "error", _, _}}, 50
 
-    push_event(kino, "cancel", %{})
+    assert_broadcast_event(kino, "running_changed", %{
+      running: [%{name: "run_forever", execution_id: execution_id}]
+    })
+
+    push_event(kino, "cancel", %{"execution_id" => execution_id})
     assert_broadcast_event(kino, "error", %{command: "run_forever", error: ":cancelled"})
+  end
+
+  test "cancels a command the widget did not start" do
+    kino = Command.new(CommandRobot)
+    connect(kino)
+
+    # Started by something else entirely — the widget never sees the pid.
+    {:ok, cmd} = Runtime.execute(CommandRobot, :run_forever, %{})
+    ref = Process.monitor(cmd)
+
+    assert_broadcast_event(kino, "running_changed", %{
+      running: [%{name: "run_forever", execution_id: execution_id}]
+    })
+
+    push_event(kino, "cancel", %{"execution_id" => execution_id})
+
+    assert_receive {:DOWN, ^ref, :process, ^cmd, {:shutdown, :cancelled}}, 1000
   end
 end
