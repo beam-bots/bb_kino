@@ -7,8 +7,9 @@ defmodule BB.Kino.EventStreamThrottleTest do
   Tests for `BB.Kino.EventStream`'s debounce + flush behaviour.
 
   Messages are injected straight into the widget's server process so the
-  component can be driven in isolation with short intervals; otherwise tests
-  would have to wait the full production defaults.
+  component can be driven in isolation. The flush interval and debounce
+  window are set far beyond the length of a test, and the test flushes by
+  sending the widget `:flush` itself, so no outcome depends on a timer.
   """
 
   use ExUnit.Case
@@ -21,8 +22,7 @@ defmodule BB.Kino.EventStreamThrottleTest do
   alias BB.Message.Sensor.BatteryState
   alias BB.Message.Sensor.JointState
 
-  @flush_interval_ms 20
-  @debounce_window_ms 100
+  @longer_than_any_test :timer.hours(1)
 
   setup :configure_livebook_bridge
 
@@ -31,11 +31,17 @@ defmodule BB.Kino.EventStreamThrottleTest do
     :ok
   end
 
-  defp start_widget do
+  defp start_widget(opts \\ []) do
     kino =
-      EventStream.new(TestRobot,
-        flush_interval_ms: @flush_interval_ms,
-        debounce_window_ms: @debounce_window_ms
+      EventStream.new(
+        TestRobot,
+        Keyword.merge(
+          [
+            flush_interval_ms: @longer_than_any_test,
+            debounce_window_ms: @longer_than_any_test
+          ],
+          opts
+        )
       )
 
     connect(kino)
@@ -61,16 +67,19 @@ defmodule BB.Kino.EventStreamThrottleTest do
 
   defp inject(kino, path, message), do: send(kino.pid, {:bb, path, message})
 
+  defp flush_now(kino), do: send(kino.pid, :flush)
+
   describe "flush" do
     test "buffers a new message until the flush interval elapses" do
       kino = start_widget()
       ref = kino.ref
 
       inject(kino, [:sensor, :imu], joint_state_message())
+      :sys.get_state(kino.pid)
 
-      refute_receive {:runtime_broadcast, "js_live", ^ref, {:event, "messages", _, _}},
-                     @flush_interval_ms - 5
+      refute_received {:runtime_broadcast, "js_live", ^ref, {:event, "messages", _, _}}
 
+      flush_now(kino)
       assert_broadcast_event(kino, "messages", %{messages: [_]})
     end
 
@@ -79,18 +88,19 @@ defmodule BB.Kino.EventStreamThrottleTest do
 
       inject(kino, [:sensor, :imu], joint_state_message())
       inject(kino, [:sensor, :battery], battery_state_message())
+      flush_now(kino)
 
       assert_broadcast_event(kino, "messages", %{messages: [_, _]})
     end
 
     test "schedules a fresh flush for messages arriving after the previous one fired" do
-      kino = start_widget()
+      kino = start_widget(flush_interval_ms: 20)
 
       inject(kino, [:sensor, :imu], joint_state_message())
-      assert_broadcast_event(kino, "messages", %{messages: [_]})
+      assert_broadcast_event(kino, "messages", %{messages: [_]}, 1_000)
 
       inject(kino, [:sensor, :battery], battery_state_message())
-      assert_broadcast_event(kino, "messages", %{messages: [_]})
+      assert_broadcast_event(kino, "messages", %{messages: [_]}, 1_000)
     end
   end
 
@@ -102,6 +112,8 @@ defmodule BB.Kino.EventStreamThrottleTest do
         inject(kino, [:sensor, :imu], joint_state_message())
       end
 
+      flush_now(kino)
+
       assert_broadcast_event(kino, "messages", %{messages: [_]})
     end
 
@@ -110,6 +122,7 @@ defmodule BB.Kino.EventStreamThrottleTest do
 
       inject(kino, [:sensor, :imu], joint_state_message())
       inject(kino, [:sensor, :imu], battery_state_message())
+      flush_now(kino)
 
       assert_broadcast_event(kino, "messages", %{messages: [_, _]})
     end

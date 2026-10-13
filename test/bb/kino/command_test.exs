@@ -26,14 +26,18 @@ defmodule BB.Kino.CommandTest do
     push_event(kino, "execute", %{"command" => "run_forever", "args" => %{}})
     assert_broadcast_event(kino, "executing", %{command: "run_forever"})
 
+    assert_broadcast_event(
+      kino,
+      "running_changed",
+      %{running: [%{name: "run_forever", execution_id: execution_id}]},
+      1_000
+    )
+
     # The command never returns on its own, so neither a result nor an error is
     # broadcast while it runs — proving the widget no longer expects it to.
-    refute_receive {:runtime_broadcast, "js_live", ^ref, {:event, "result", _, _}}, 100
-    refute_receive {:runtime_broadcast, "js_live", ^ref, {:event, "error", _, _}}, 50
-
-    assert_broadcast_event(kino, "running_changed", %{
-      running: [%{name: "run_forever", execution_id: execution_id}]
-    })
+    :sys.get_state(kino.pid)
+    refute_received {:runtime_broadcast, "js_live", ^ref, {:event, "result", _, _}}
+    refute_received {:runtime_broadcast, "js_live", ^ref, {:event, "error", _, _}}
 
     push_event(kino, "cancel", %{"execution_id" => execution_id})
     assert_broadcast_event(kino, "error", %{command: "run_forever", error: ":cancelled"})
