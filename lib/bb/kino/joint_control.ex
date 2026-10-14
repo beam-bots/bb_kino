@@ -183,14 +183,8 @@ defmodule BB.Kino.JointControl do
       {:error, reason} -> inspect(reason)
     end
   catch
-    # `set_position/4` calls the actuator, so one that has died or is too busy to
-    # answer would otherwise exit the widget along with it.
-    :exit, {:noproc, _} ->
-      "#{inspect(actuator_name)} is not running"
-
-    :exit, {:timeout, _} ->
-      "#{inspect(actuator_name)} did not answer within #{@command_timeout_ms}ms"
-
+    # An actuator that crashes while handling the command exits the caller, and
+    # would take the widget down with it.
     :exit, _reason ->
       "#{inspect(actuator_name)} failed while handling the command"
   end
