@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.4.5](https://github.com/beam-bots/bb_kino/compare/v0.4.4...v0.4.5) (2026-10-14)
+
+
+
+
+### Improvements:
+
+* drop actuator exit catches that `bb` now returns as errors (#160) by James Harton
+
 ## [v0.4.4](https://github.com/beam-bots/bb_kino/compare/v0.4.3...v0.4.4) (2026-09-12)
 
 
