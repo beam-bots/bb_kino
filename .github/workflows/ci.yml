@@ -39,7 +39,7 @@ jobs:
 
   CI:
     needs: build-assets
-    uses: beam-bots/.github/.github/workflows/elixir-ci.yml@ad38aa36b03786757281d22eb85701dcff21bec8 # main
+    uses: beam-bots/.github/.github/workflows/elixir-ci.yml@e85ff283bdc8341d77c185d321abe746bf297788 # main
     with:
       enable-docs-deploy: true
       enable-release: false
