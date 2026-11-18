@@ -157,10 +157,8 @@ defmodule BB.Kino.CameraTest do
       assert pid == kino.pid
 
       assert message_types == [
-               BB.Message.Camera.ApplySettings,
                BB.Message.Camera.BeginCapture,
-               BB.Message.Camera.EndCapture,
-               BB.Message.Camera.RejectSettings
+               BB.Message.Camera.EndCapture
              ]
     end
 

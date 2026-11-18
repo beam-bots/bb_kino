@@ -56,10 +56,8 @@ defmodule BB.Kino.Camera do
   alias Kino.JS.Live, as: KinoLive
 
   @camera_events [
-    BB.Message.Camera.ApplySettings,
     BB.Message.Camera.BeginCapture,
-    BB.Message.Camera.EndCapture,
-    BB.Message.Camera.RejectSettings
+    BB.Message.Camera.EndCapture
   ]
 
   @doc """
