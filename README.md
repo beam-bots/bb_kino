@@ -28,6 +28,7 @@ BB Kino provides a suite of interactive widgets for working with BB robots in Li
 - **Event Stream Widget** - Real-time message monitoring with path filtering and pause/resume
 - **Command Widget** - Dynamic forms for executing robot commands with argument validation
 - **3D Visualisation Widget** - Interactive Three.js rendering with real-time joint updates
+- **Camera Widget** - Automatic camera discovery with live MJPEG previews
 - **Manage Robot Smart Cell** - Unified dashboard combining all widgets
 
 ## Installation
@@ -131,6 +132,25 @@ Interactive Three.js-based robot visualisation:
 - Orbit camera controls (rotate, pan, zoom)
 - Support for box, cylinder, and sphere geometries
 - Reset view button
+
+### Camera Widget
+
+Lists every camera the robot declares and previews the running ones:
+
+```elixir
+BB.Kino.camera(MyRobot, endpoint: "http://robot.local:4000/robot")
+```
+
+- Discovery needs no configuration, and works whether or not a camera is running
+- A camera declared but offline is shown as offline rather than hidden
+- Frames do **not** travel through Livebook: each preview is an `<img>` in your
+  browser fetching MJPEG from a mounted `bb_liveview` dashboard
+- `:endpoint` is that dashboard's address **as your browser reaches it** —
+  there is no default, because the Livebook runtime is frequently not the
+  machine you are reading the notebook on. It can also be set with
+  `config :bb_kino, :dashboard_url` or pasted into the widget
+- An HTTPS notebook cannot load an `http://` stream; browsers block it as mixed
+  content
 
 ## Requirements
 

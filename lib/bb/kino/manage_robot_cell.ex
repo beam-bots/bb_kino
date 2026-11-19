@@ -33,17 +33,24 @@ defmodule BB.Kino.ManageRobotCell do
       "events" => Map.get(attrs, "events", true),
       "commands" => Map.get(attrs, "commands", true),
       "visualisation" => Map.get(attrs, "visualisation", true),
-      "parameters" => Map.get(attrs, "parameters", true)
+      "parameters" => Map.get(attrs, "parameters", true),
+      "cameras" => Map.get(attrs, "cameras", true)
     }
 
-    {:ok, assign(ctx, robot_module: robot_module, widgets: widgets)}
+    {:ok,
+     assign(ctx,
+       robot_module: robot_module,
+       widgets: widgets,
+       dashboard_url: attrs["dashboard_url"] || ""
+     )}
   end
 
   @impl true
   def handle_connect(ctx) do
     payload = %{
       robot_module: ctx.assigns.robot_module,
-      widgets: ctx.assigns.widgets
+      widgets: ctx.assigns.widgets,
+      dashboard_url: ctx.assigns.dashboard_url
     }
 
     {:ok, payload, ctx}
@@ -53,6 +60,11 @@ defmodule BB.Kino.ManageRobotCell do
   def handle_event("update_robot_module", %{"value" => value}, ctx) do
     broadcast_event(ctx, "update_robot_module", %{"value" => value})
     {:noreply, assign(ctx, robot_module: value)}
+  end
+
+  def handle_event("update_dashboard_url", %{"value" => value}, ctx) do
+    broadcast_event(ctx, "update_dashboard_url", %{"value" => value})
+    {:noreply, assign(ctx, dashboard_url: value)}
   end
 
   def handle_event("toggle_widget", %{"widget" => widget, "enabled" => enabled}, ctx) do
@@ -70,7 +82,9 @@ defmodule BB.Kino.ManageRobotCell do
       "events" => ctx.assigns.widgets["events"],
       "commands" => ctx.assigns.widgets["commands"],
       "visualisation" => ctx.assigns.widgets["visualisation"],
-      "parameters" => ctx.assigns.widgets["parameters"]
+      "parameters" => ctx.assigns.widgets["parameters"],
+      "cameras" => ctx.assigns.widgets["cameras"],
+      "dashboard_url" => ctx.assigns.dashboard_url
     }
   end
 
@@ -207,7 +221,18 @@ defmodule BB.Kino.ManageRobotCell do
       quote(do: BB.Kino.visualisation(unquote(module_ast)))
     )
     |> maybe_add_widget(attrs["commands"], quote(do: BB.Kino.commands(unquote(module_ast))))
+    |> maybe_add_widget(attrs["cameras"], camera_widget(attrs, module_ast))
     |> Enum.reverse()
+  end
+
+  defp camera_widget(attrs, module_ast) do
+    case attrs["dashboard_url"] do
+      url when is_binary(url) and url != "" ->
+        quote(do: BB.Kino.camera(unquote(module_ast), endpoint: unquote(url)))
+
+      _blank ->
+        quote(do: BB.Kino.camera(unquote(module_ast)))
+    end
   end
 
   defp build_bottom_widget(attrs, module_ast) do
@@ -293,7 +318,23 @@ defmodule BB.Kino.ManageRobotCell do
                     <input type="checkbox" data-widget="parameters" ${payload.widgets.parameters ? 'checked' : ''}>
                     <span>Parameters</span>
                   </label>
+                  <label class="toggle">
+                    <input type="checkbox" data-widget="cameras" ${payload.widgets.cameras ? 'checked' : ''}>
+                    <span>Cameras</span>
+                  </label>
                 </div>
+              </div>
+              <div class="field">
+                <label>Dashboard URL (for camera previews)</label>
+                <input type="text" class="dashboard-url-input"
+                       placeholder="http://robot.local:4000/robot"
+                       value="${payload.dashboard_url || ''}">
+                <span class="hint">
+                  Where your browser reaches a mounted bb_liveview dashboard.
+                  Camera frames are fetched from there directly, not through
+                  Livebook, so this must be reachable from the browser rather
+                  than from the Livebook runtime.
+                </span>
               </div>
             </div>
           `;
@@ -341,6 +382,14 @@ defmodule BB.Kino.ManageRobotCell do
             });
           }
 
+          const dashboardUrlInput = ctx.root.querySelector(".dashboard-url-input");
+
+          if (dashboardUrlInput) {
+            dashboardUrlInput.addEventListener("change", (e) => {
+              ctx.pushEvent("update_dashboard_url", { value: e.target.value });
+            });
+          }
+
           ctx.root.querySelectorAll(".widget-toggles input").forEach(checkbox => {
             checkbox.addEventListener("change", (e) => {
               ctx.pushEvent("toggle_widget", {
@@ -363,6 +412,10 @@ defmodule BB.Kino.ManageRobotCell do
       ctx.handleEvent("update_widgets", ({ widgets }) => {
         payload.widgets = widgets;
         render();
+      });
+
+      ctx.handleEvent("update_dashboard_url", ({ value }) => {
+        payload.dashboard_url = value;
       });
 
       ctx.handleSync(() => {

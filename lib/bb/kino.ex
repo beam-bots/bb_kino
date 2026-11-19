@@ -28,6 +28,7 @@ defmodule BB.Kino do
   - `BB.Kino.Command` - Execute robot commands with forms
   - `BB.Kino.Visualisation` - Interactive 3D robot visualisation
   - `BB.Kino.Parameters` - View and edit robot parameters
+  - `BB.Kino.Camera` - Discover and preview the robot's cameras
 
   ## Quick Start
 
@@ -57,6 +58,24 @@ defmodule BB.Kino do
 
       BB.Kino.safety(MyRobot)
   """
+
+  @doc """
+  Creates a camera widget for the robot.
+
+  Discovers every camera the robot declares and previews those that are
+  running. Frames do not travel through Livebook: previews are fetched by the
+  notebook's browser straight from a mounted `bb_liveview` dashboard, so
+  `:endpoint` must be that dashboard's address *as the browser sees it*.
+
+  Without an endpoint the widget still lists the cameras and offers a field to
+  enter one.
+
+  ## Example
+
+      BB.Kino.camera(MyRobot, endpoint: "http://robot.local:4000/robot")
+  """
+  @spec camera(module(), keyword()) :: Kino.JS.Live.t()
+  defdelegate camera(robot_module, opts \\ []), to: BB.Kino.Camera, as: :new
 
   @doc """
   Creates a safety status widget for the robot.
