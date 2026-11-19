@@ -9,7 +9,7 @@ defmodule BB.Kino.MixProject do
   Beam Bots integration for Kino widgets in LiveBook.
   """
 
-  @version "0.4.5"
+  @version "0.5.0"
 
   def project do
     [

@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.5.0](https://github.com/beam-bots/bb_kino/compare/v0.4.5...v0.5.0) (2026-11-19)
+
+
+
+
+### Features:
+
+* Discover and preview robot cameras in Livebook (#186) by James Harton
+
 ## [v0.4.5](https://github.com/beam-bots/bb_kino/compare/v0.4.4...v0.4.5) (2026-10-14)
 
 
